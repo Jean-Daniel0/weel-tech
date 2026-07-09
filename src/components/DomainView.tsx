@@ -24,6 +24,15 @@ export default function DomainView({ userProfile }: DomainViewProps) {
     planUsed?: string;
     isSimulated?: boolean;
   } | null>(null);
+  const [searchResults, setSearchResults] = useState<Array<{
+    domain: string;
+    available: boolean;
+    price: string;
+    rawPrice?: number;
+    basePrice?: number;
+    planUsed?: string;
+    isSimulated?: boolean;
+  }>>([]);
 
   const [registering, setRegistering] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -265,26 +274,17 @@ export default function DomainView({ userProfile }: DomainViewProps) {
     if (!searchTerm) return;
     setSearching(true);
     setErrorMessage(null);
+    setSearchResults([]);
     setAvailabilityResult(null);
     setPurchaseStep('idle');
 
     try {
       // Check if domain includes extension
       let formatted = searchTerm.trim().toLowerCase().replace(/^(https?:\/\/)?(www\.)?/, '');
-      if (!formatted.includes('.')) {
-        formatted += '.fr';
-      }
+      let extensionsToSend: string[] = [];
 
-      // Check if they already own it
-      const alreadyOwned = domains.some(d => d.domain_name === formatted);
-      if (alreadyOwned) {
-        setAvailabilityResult({
-          domain: formatted,
-          available: false,
-          price: 'Indisponible'
-        });
-        setSearching(false);
-        return;
+      if (!formatted.includes('.')) {
+        extensionsToSend = ['.com', '.net', '.org', '.fr', '.io'];
       }
 
       const response = await fetch('/api/edge/search-domain', {
@@ -294,6 +294,7 @@ export default function DomainView({ userProfile }: DomainViewProps) {
         },
         body: JSON.stringify({
           domain: formatted,
+          extensions: extensionsToSend,
           userId: userProfile?.id,
           plan: userProfile?.plan,
         }),
@@ -304,16 +305,25 @@ export default function DomainView({ userProfile }: DomainViewProps) {
       }
 
       const data = await response.json();
-      if (data.success) {
-        setAvailabilityResult({
-          domain: data.domain,
-          available: data.available,
-          price: `${data.finalPrice.toFixed(2)} €/an`,
-          rawPrice: data.finalPrice,
-          basePrice: data.basePrice,
-          planUsed: data.planUsed,
-          isSimulated: data.isSimulated
+      if (data.success && Array.isArray(data.results)) {
+        const mappedResults = data.results.map((res: any) => {
+          const alreadyOwned = domains.some(d => d.domain_name === res.domain);
+          return {
+            domain: res.domain,
+            available: alreadyOwned ? false : res.available,
+            price: alreadyOwned ? 'Déjà possédé' : `${res.finalPrice.toFixed(2)} €/an`,
+            rawPrice: res.finalPrice,
+            basePrice: res.basePrice,
+            planUsed: res.planUsed,
+            isSimulated: res.isSimulated
+          };
         });
+        setSearchResults(mappedResults);
+
+        // If a single domain was typed with an extension, automatically select it to show its configuration options
+        if (formatted.includes('.')) {
+          setAvailabilityResult(mappedResults[0]);
+        }
       } else {
         throw new Error(data.error || "Erreur de recherche");
       }
@@ -841,43 +851,47 @@ export default function DomainView({ userProfile }: DomainViewProps) {
             </div>
           </form>
 
-          {availabilityResult && (
+          {(searchResults.length > 0 || availabilityResult) && (
             <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3.5 animate-fade-in">
               {/* Step 1: Found Domain & Basic Price Info */}
               {purchaseStep === 'idle' && (
                 <div className="space-y-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <p className="text-xs font-mono font-bold text-brand-dark break-all">{availabilityResult.domain}</p>
-                      <p className={`text-4xs font-semibold mt-0.5 ${
-                        availabilityResult.available ? 'text-emerald-600' : 'text-red-500'
-                      }`}>
-                        {availabilityResult.available ? '✓ Disponible à l\'enregistrement' : '✗ Déjà enregistré ou indisponible'}
-                      </p>
-                    </div>
-                    {availabilityResult.available && (
-                      <div className="text-right">
-                        <span className="text-sm font-bold text-brand-dark block">{availabilityResult.price}</span>
-                        {availabilityResult.planUsed && (
-                          <span className="text-5xs text-slate-400 block font-medium">Tarif plan {userProfile?.plan || 'Standard'}</span>
-                        )}
+                  <p className="text-3xs font-bold text-slate-400 uppercase tracking-wider">
+                    Disponibilité des extensions
+                  </p>
+                  <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                    {searchResults.map((res) => (
+                      <div key={res.domain} className="flex items-center justify-between gap-2 p-2 bg-white rounded-lg border border-slate-100 shadow-3xs">
+                        <div className="min-w-0">
+                          <p className="text-xs font-mono font-bold text-brand-dark break-all">{res.domain}</p>
+                          <p className={`text-5xs font-semibold mt-0.5 ${
+                            res.available ? 'text-emerald-600' : 'text-red-500'
+                          }`}>
+                            {res.available ? '✓ Disponible' : '✗ Indisponible'}
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          {res.available ? (
+                            <div className="flex items-center gap-2">
+                              <span className="text-2xs font-bold text-brand-dark">{res.price}</span>
+                              <button
+                                onClick={() => {
+                                  setAvailabilityResult(res);
+                                  setPurchaseStep('configure');
+                                }}
+                                className="px-2 py-1 bg-brand-blue hover:bg-blue-600 text-white font-bold text-5xs rounded-lg transition cursor-pointer flex items-center gap-0.5"
+                              >
+                                <Plus className="w-3 h-3" />
+                                Choisir
+                              </button>
+                            </div>
+                          ) : (
+                            <span className="text-5xs text-slate-400 font-semibold">Indisponible</span>
+                          )}
+                        </div>
                       </div>
-                    )}
+                    ))}
                   </div>
-
-                  {availabilityResult.available ? (
-                    <div className="pt-2 border-t border-slate-200">
-                      <button
-                        onClick={() => setPurchaseStep('configure')}
-                        className="w-full py-2 bg-brand-blue text-white rounded-xl hover:bg-blue-700 transition font-semibold text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
-                      >
-                        <Plus className="w-4 h-4" />
-                        Acheter ce domaine
-                      </button>
-                    </div>
-                  ) : (
-                    <p className="text-4xs text-slate-400">Ce domaine appartient déjà à un tiers ou à votre portefeuille.</p>
-                  )}
                 </div>
               )}
 
@@ -1024,6 +1038,7 @@ export default function DomainView({ userProfile }: DomainViewProps) {
                   <button
                     onClick={() => {
                       setAvailabilityResult(null);
+                      setSearchResults([]);
                       setPurchaseStep('idle');
                     }}
                     className="w-full py-1.5 bg-brand-dark text-white rounded-lg text-5xs font-bold hover:bg-black transition cursor-pointer"
@@ -1077,6 +1092,7 @@ export default function DomainView({ userProfile }: DomainViewProps) {
                   <button
                     onClick={() => {
                       setAvailabilityResult(null);
+                      setSearchResults([]);
                       setPurchaseStep('idle');
                     }}
                     className="w-full py-1.5 bg-brand-dark text-white rounded-lg text-5xs font-bold hover:bg-black transition cursor-pointer"

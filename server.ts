@@ -79,28 +79,116 @@ Vous devez STRICTEMENT retourner un objet JSON correspondant au schéma suivant 
 - message : Résumé conversationnel court (en français, 2-3 phrases) des choix esthétiques, des sections et de l'interactivité ajoutée ou modifiée.
 - html : Le code source HTML de haute qualité complet, propre et fonctionnel de la page.`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.5-flash',
-      contents: contents,
-      config: {
-        systemInstruction: systemInstruction,
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            message: {
-              type: Type.STRING,
-              description: "Explication synthétique et chaleureuse en français des choix de design et fonctionnalités."
-            },
-            html: {
-              type: Type.STRING,
-              description: "Le code HTML complet, autonome, valide et fonctionnel incluant Tailwind CSS et JS d'interaction."
+    let model = 'gemini-3.5-flash';
+    let response: any = null;
+    let success = false;
+    let lastError: any = null;
+    const maxRetries = 3;
+    const backoffDelays = [1000, 3000, 6000];
+
+    const isUnavailableError = (err: any): boolean => {
+      const errMsg = String(err?.message || '').toUpperCase();
+      const errCode = String(err?.code || err?.status || err?.statusCode || '');
+      return errCode.includes('503') || 
+             errCode.includes('UNAVAILABLE') || 
+             errMsg.includes('UNAVAILABLE') || 
+             errMsg.includes('503') ||
+             errMsg.includes('SERVICE_UNAVAILABLE') ||
+             err?.status === 503 ||
+             err?.statusCode === 503;
+    };
+
+    // Primary attempts with gemini-3.5-flash (up to 3 retries, total of 4 attempts if UNAVAILABLE)
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      console.log(`[Gemini API] Tentative ${attempt}/4 avec le modèle ${model}...`);
+      try {
+        response = await ai.models.generateContent({
+          model: model,
+          contents: contents,
+          config: {
+            systemInstruction: systemInstruction,
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                message: {
+                  type: Type.STRING,
+                  description: "Explication synthétique et chaleureuse en français des choix de design et fonctionnalités."
+                },
+                html: {
+                  type: Type.STRING,
+                  description: "Le code HTML complet, autonome, valide et fonctionnel incluant Tailwind CSS et JS d'interaction."
+                }
+              },
+              required: ["message", "html"]
             }
-          },
-          required: ["message", "html"]
+          }
+        });
+        console.log(`[Gemini API] Tentative ${attempt} réussie avec le modèle ${model}.`);
+        success = true;
+        break;
+      } catch (err: any) {
+        lastError = err;
+        console.error(`[Gemini API] Échec de la tentative ${attempt}/4 avec ${model} : ${err.message || err}`);
+        
+        // Stop early if the error is non-transient (e.g. invalid API key, invalid request parameters, etc.)
+        if (!isUnavailableError(err)) {
+          console.log(`[Gemini API] Erreur non-transitoire détectée. Arrêt immédiat.`);
+          break;
+        }
+
+        // Wait with backoff before next retry
+        if (attempt <= maxRetries) {
+          const waitMs = backoffDelays[attempt - 1];
+          console.log(`[Gemini API] Service indisponible. Attente de ${waitMs / 1000}s avant le prochain essai...`);
+          await new Promise(resolve => setTimeout(resolve, waitMs));
         }
       }
-    });
+    }
+
+    // Fallback to gemini-2.5-flash if gemini-3.5-flash was completely unavailable
+    if (!success && isUnavailableError(lastError)) {
+      model = 'gemini-2.5-flash';
+      console.log(`[Gemini API] Toutes les tentatives avec gemini-3.5-flash ont échoué. Tentative finale de secours avec ${model}...`);
+      try {
+        response = await ai.models.generateContent({
+          model: model,
+          contents: contents,
+          config: {
+            systemInstruction: systemInstruction,
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                message: {
+                  type: Type.STRING,
+                  description: "Explication synthétique et chaleureuse en français des choix de design et fonctionnalités."
+                },
+                html: {
+                  type: Type.STRING,
+                  description: "Le code HTML complet, autonome, valide et fonctionnel incluant Tailwind CSS et JS d'interaction."
+                }
+              },
+              required: ["message", "html"]
+            }
+          }
+        });
+        console.log(`[Gemini API] Succès de secours avec le modèle ${model}.`);
+        success = true;
+      } catch (err: any) {
+        lastError = err;
+        console.error(`[Gemini API] Échec définitif du modèle de secours ${model} : ${err.message || err}`);
+      }
+    }
+
+    if (!success) {
+      const isOverloaded = isUnavailableError(lastError);
+      const userMessage = isOverloaded 
+        ? "Le service de génération est momentanément surchargé. Veuillez réessayer dans quelques instants."
+        : `Erreur de génération : ${lastError?.message || lastError || "Inconnue"}`;
+      
+      return res.status(503).json({ error: userMessage });
+    }
 
     const text = response.text;
     if (!text) {
@@ -716,82 +804,102 @@ app.post('/api/moncash-payout', async (req, res) => {
  */
 app.post('/api/edge/search-domain', async (req, res) => {
   try {
-    const { domain, userId, plan } = req.body;
+    const { domain, extensions, userId, plan } = req.body;
 
     if (!domain) {
-      return res.status(400).json({ error: "Le nom de domaine est obligatoire." });
+      return res.status(400).json({ error: "Le nom de domaine ou le préfixe est obligatoire." });
     }
 
     // Sanitize domain
-    const formattedDomain = domain.trim().toLowerCase().replace(/^(https?:\/\/)?(www\.)?/, '');
+    const baseDomain = domain.trim().toLowerCase().replace(/^(https?:\/\/)?(www\.)?/, '');
+
+    // Determine the list of domains to check
+    let domainsToCheck: string[] = [];
+    if (Array.isArray(extensions) && extensions.length > 0) {
+      domainsToCheck = extensions.map(ext => {
+        const cleanExt = ext.startsWith('.') ? ext : `.${ext}`;
+        return `${baseDomain}${cleanExt}`;
+      });
+    } else {
+      domainsToCheck = [baseDomain];
+    }
     
     const dynadotApiKey = process.env.DYNADOT_API_KEY;
-    let isAvailable = true;
-    let basePrice = 9.99; // Default base price in EUR
-    let isSimulated = true;
 
-    // Check availability via Dynadot if Key exists
-    if (dynadotApiKey) {
-      try {
-        const url = `https://api.dynadot.com/api3.json?key=${dynadotApiKey}&command=search&domain0=${encodeURIComponent(formattedDomain)}`;
-        const response = await fetch(url);
-        if (response.ok) {
-          const data = await response.json();
-          if (data?.SearchResponse?.SearchResults?.[0]) {
-            const result = data.SearchResponse.SearchResults[0];
-            isAvailable = result.Available === 'yes';
-            basePrice = parseFloat(result.Price) || basePrice;
-            isSimulated = false;
+    const results = await Promise.all(domainsToCheck.map(async (formattedDomain) => {
+      let isAvailable = true;
+      let basePrice = 9.99; // Default base price in EUR
+      let isSimulated = true;
+
+      // Check availability via Dynadot if Key exists
+      if (dynadotApiKey) {
+        try {
+          const url = `https://api.dynadot.com/api3.json?key=${dynadotApiKey}&command=search&domain0=${encodeURIComponent(formattedDomain)}`;
+          const response = await fetch(url);
+          if (response.ok) {
+            const data = await response.json();
+            if (data?.SearchResponse?.SearchResults?.[0]) {
+              const result = data.SearchResponse.SearchResults[0];
+              isAvailable = result.Available === 'yes';
+              basePrice = parseFloat(result.Price) || basePrice;
+              isSimulated = false;
+            }
           }
+        } catch (err) {
+          console.error(`Error communicating with Dynadot API for ${formattedDomain}, falling back to simulator:`, err);
         }
-      } catch (err) {
-        console.error("Error communicating with Dynadot API, falling back to simulator:", err);
       }
-    }
 
-    // Local simulator fallback if not connected
-    if (isSimulated) {
-      const lower = formattedDomain;
-      // Deterministic availability check: unavailable for common brands
-      isAvailable = !lower.includes('google') && 
-                    !lower.includes('facebook') && 
-                    !lower.includes('apple') && 
-                    !lower.includes('weel-tech') &&
-                    !lower.includes('vendza');
-      
-      // Assign pricing based on extension
-      if (lower.endsWith('.fr')) {
-        basePrice = 7.99;
-      } else if (lower.endsWith('.com')) {
-        basePrice = 9.99;
-      } else if (lower.endsWith('.net')) {
-        basePrice = 11.99;
-      } else if (lower.endsWith('.org')) {
-        basePrice = 10.99;
-      } else {
-        basePrice = 12.99;
+      // Local simulator fallback if not connected
+      if (isSimulated) {
+        const lower = formattedDomain;
+        // Deterministic availability check: unavailable for common brands
+        isAvailable = !lower.includes('google') && 
+                      !lower.includes('facebook') && 
+                      !lower.includes('apple') && 
+                      !lower.includes('weel-tech') &&
+                      !lower.includes('vendza');
+        
+        // Assign pricing based on extension
+        if (lower.endsWith('.fr')) {
+          basePrice = 7.99;
+        } else if (lower.endsWith('.com')) {
+          basePrice = 9.99;
+        } else if (lower.endsWith('.net')) {
+          basePrice = 11.99;
+        } else if (lower.endsWith('.org')) {
+          basePrice = 10.99;
+        } else if (lower.endsWith('.io')) {
+          basePrice = 29.99;
+        } else {
+          basePrice = 12.99;
+        }
       }
-    }
 
-    // Price markup calculation depending on user subscription plan
-    // Full margin (marge pleine) if no subscription: +50% markup
-    // Reduced margins (marge réduite) according to starter/pro/business plans:
-    let markup = 0.50; // no plan / default
-    if (plan === 'starter') markup = 0.30;
-    else if (plan === 'pro') markup = 0.15;
-    else if (plan === 'business') markup = 0.05;
+      // Price markup calculation depending on user subscription plan
+      // Full margin (marge pleine) if no subscription: +50% markup
+      // Reduced margins (marge réduite) according to starter/pro/business plans:
+      let markup = 0.50; // no plan / default
+      if (plan === 'starter') markup = 0.30;
+      else if (plan === 'pro') markup = 0.15;
+      else if (plan === 'business') markup = 0.05;
 
-    const finalPrice = basePrice * (1 + markup);
+      const finalPrice = basePrice * (1 + markup);
+
+      return {
+        domain: formattedDomain,
+        available: isAvailable,
+        basePrice: parseFloat(basePrice.toFixed(2)),
+        finalPrice: parseFloat(finalPrice.toFixed(2)),
+        currency: "EUR",
+        planUsed: plan || "Aucun abonnement (marge pleine)",
+        isSimulated
+      };
+    }));
 
     return res.json({
       success: true,
-      domain: formattedDomain,
-      available: isAvailable,
-      basePrice: parseFloat(basePrice.toFixed(2)),
-      finalPrice: parseFloat(finalPrice.toFixed(2)),
-      currency: "EUR",
-      planUsed: plan || "Aucun abonnement (marge pleine)",
-      isSimulated
+      results: results
     });
 
   } catch (error: any) {
