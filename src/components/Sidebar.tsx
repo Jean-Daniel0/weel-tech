@@ -43,7 +43,7 @@ export default function Sidebar({ currentView, onViewChange }: SidebarProps) {
   ];
 
   return (
-    <aside id="sidebar" style={{ width: '208.99px', height: '507.991px' }} className="bg-[#0A0E1A] text-slate-300 flex flex-col justify-between shrink-0 p-2 md:p-3.5 border-r border-slate-900">
+    <aside id="sidebar" style={{ width: '208.99px' }} className="bg-[#0A0E1A] text-slate-300 flex flex-col justify-between shrink-0 p-2 md:p-3.5 border-r border-slate-900 h-full">
       <div className="space-y-4">
         <div className="hidden md:block">
           <p className="text-[10px] uppercase tracking-wider font-semibold text-slate-500 px-2">NAVIGATION PRINCIPALE</p>

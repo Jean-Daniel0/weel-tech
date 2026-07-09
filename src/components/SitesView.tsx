@@ -1,8 +1,9 @@
 import React, { useState, useEffect, FormEvent } from 'react';
 import { supabase } from '../lib/supabase';
 import { Site, UserProfile } from '../types';
-import { Plus, Globe, Trash2, Check, RefreshCw, Eye, Sparkles, Filter, ExternalLink, ShieldCheck, Monitor, Smartphone, X } from 'lucide-react';
+import { Plus, Globe, Trash2, Check, RefreshCw, Eye, Sparkles, Filter, ExternalLink, ShieldCheck, Monitor, Smartphone, X, BarChart3 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import SiteDetailsView from './SiteDetailsView';
 
 interface SitesViewProps {
   userProfile: UserProfile | null;
@@ -22,6 +23,7 @@ export default function SitesView({ userProfile }: SitesViewProps) {
   const [previewSiteHtml, setPreviewSiteHtml] = useState<string | null>(null);
   const [previewSiteName, setPreviewSiteName] = useState<string | null>(null);
   const [previewSiteMode, setPreviewSiteMode] = useState<'desktop' | 'mobile'>('desktop');
+  const [selectedSiteForDetails, setSelectedSiteForDetails] = useState<Site | null>(null);
 
   useEffect(() => {
     fetchSites();
@@ -266,6 +268,18 @@ export default function SitesView({ userProfile }: SitesViewProps) {
     }
   };
 
+  if (selectedSiteForDetails) {
+    return (
+      <SiteDetailsView 
+        site={selectedSiteForDetails} 
+        onBack={() => {
+          setSelectedSiteForDetails(null);
+          fetchSites();
+        }} 
+      />
+    );
+  }
+
   // Stats calculators
   const totalSites = sites.length;
   const activeSites = sites.filter(s => s.status === 'active').length;
@@ -449,15 +463,19 @@ export default function SitesView({ userProfile }: SitesViewProps) {
                 >
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     {/* Left Info: Icon & Name */}
-                    <div className="flex items-start gap-3">
-                      <div className={`p-3 rounded-xl ${
-                        site.status === 'active' ? 'bg-blue-50 text-[#2563EB]' : 'bg-slate-100 text-slate-400'
+                    <div 
+                      className="flex items-start gap-3 cursor-pointer group/info"
+                      onClick={() => setSelectedSiteForDetails(site)}
+                      title="Voir les détails et statistiques"
+                    >
+                      <div className={`p-3 rounded-xl transition-colors ${
+                        site.status === 'active' ? 'bg-blue-50 text-[#2563EB] group-hover/info:bg-blue-100' : 'bg-slate-100 text-slate-400 group-hover/info:bg-slate-200'
                       }`}>
                         <Globe className="w-5 h-5" />
                       </div>
                       <div>
                         <div className="flex items-center gap-2 flex-wrap">
-                          <h3 className="text-[16px] font-semibold font-display text-[#0A0E1A] leading-tight">{site.name}</h3>
+                          <h3 className="text-[16px] font-semibold font-display text-[#0A0E1A] leading-tight group-hover/info:text-[#2563EB] transition-colors">{site.name}</h3>
                           <span className={`px-2.5 py-0.5 rounded-full text-[12px] font-semibold uppercase tracking-wider border ${
                             site.status === 'active' 
                               ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
@@ -469,7 +487,7 @@ export default function SitesView({ userProfile }: SitesViewProps) {
                             {site.type}
                           </span>
                         </div>
-                        <p className="text-[12px] text-slate-400 font-mono mt-1 flex items-center gap-1 hover:text-[#2563EB] transition">
+                        <p className="text-[12px] text-slate-400 font-mono mt-1 flex items-center gap-1 hover:text-[#2563EB] transition" onClick={(e) => e.stopPropagation()}>
                           <ExternalLink className="w-3 h-3" />
                           <a href={`https://${site.domain}`} target="_blank" rel="noopener noreferrer">
                             {site.domain}
@@ -507,6 +525,15 @@ export default function SitesView({ userProfile }: SitesViewProps) {
                           title="Visiter le site"
                         >
                           <Eye className="w-4 h-4" />
+                        </button>
+
+                        {/* View stats details */}
+                        <button
+                          onClick={() => setSelectedSiteForDetails(site)}
+                          className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition cursor-pointer"
+                          title="Statistiques Cloudflare"
+                        >
+                          <BarChart3 className="w-4 h-4" />
                         </button>
 
                         {/* Delete site */}

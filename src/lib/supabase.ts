@@ -160,7 +160,9 @@ const initFallbackDatabase = () => {
         dns_configured: true,
         registered_at: new Date(Date.now() - 3600000 * 24 * 180).toISOString(),
         expires_at: new Date(Date.now() + 3600000 * 24 * 185).toISOString(),
-        linked_site_id: 'site-1'
+        linked_site_id: 'site-1',
+        usage_type: 'vendza_site',
+        connection_status: 'active'
       },
       {
         id: 'dom-2',
@@ -170,7 +172,9 @@ const initFallbackDatabase = () => {
         dns_configured: true,
         registered_at: new Date(Date.now() - 3600000 * 24 * 90).toISOString(),
         expires_at: new Date(Date.now() + 3600000 * 24 * 275).toISOString(),
-        linked_site_id: 'site-2'
+        linked_site_id: 'site-2',
+        usage_type: 'vendza_site',
+        connection_status: 'active'
       },
       {
         id: 'dom-3',
@@ -179,10 +183,65 @@ const initFallbackDatabase = () => {
         status: 'pending',
         dns_configured: false,
         registered_at: new Date(Date.now() - 3600000 * 2).toISOString(),
-        expires_at: new Date(Date.now() + 3600000 * 24 * 365).toISOString()
+        expires_at: new Date(Date.now() + 3600000 * 24 * 365).toISOString(),
+        usage_type: 'external',
+        connection_status: 'propagating'
       }
     ];
     setLocalData('domains', mockDomains);
+
+    // Seed DNS records
+    const mockDnsRecords = [
+      {
+        id: 'dns-rec-1',
+        domain_id: 'dom-3',
+        type: 'A',
+        name: '@',
+        value: '185.190.140.10',
+        ttl: 14400,
+        synced_with_dynadot: true,
+        created_at: new Date(Date.now() - 3600000 * 2).toISOString()
+      },
+      {
+        id: 'dns-rec-2',
+        domain_id: 'dom-3',
+        type: 'CNAME',
+        name: 'www',
+        value: 'dns.weel-tech.fr',
+        ttl: 14400,
+        synced_with_dynadot: true,
+        created_at: new Date(Date.now() - 3600000 * 2).toISOString()
+      },
+      {
+        id: 'dns-rec-3',
+        domain_id: 'dom-3',
+        type: 'MX',
+        name: '@',
+        value: 'mail.weel-agency.net',
+        ttl: 14400,
+        priority: 10,
+        synced_with_dynadot: false,
+        created_at: new Date(Date.now() - 3600000 * 2).toISOString()
+      }
+    ];
+    setLocalData('dns_records', mockDnsRecords);
+
+    // Seed default subscription
+    const mockSubscriptions = [
+      {
+        id: 'sub-demo-123',
+        user_id: defaultUserId,
+        plan_id: 'starter',
+        status: 'active',
+        current_period_start: new Date(Date.now() - 3600000 * 24 * 10).toISOString(),
+        current_period_end: new Date(Date.now() + 3600000 * 24 * 20).toISOString(),
+        cancel_at_period_end: false,
+        stripe_subscription_id: 'sub_mock_starter123',
+        stripe_customer_id: 'cus_mock_123',
+        created_at: new Date(Date.now() - 3600000 * 24 * 10).toISOString()
+      }
+    ];
+    setLocalData('subscriptions', mockSubscriptions);
 
     localStorage.setItem('weel_tech_seeded', 'true');
   }
@@ -408,6 +467,61 @@ export const mockSupabase = {
         }
       ];
       setLocalData('payment_configs', paymentConfigs);
+    }
+
+    if (table === 'dns_records' && !localStorage.getItem('weel_tech_dns_records')) {
+      const defaultDnsRecords = [
+        {
+          id: 'dns-rec-1',
+          domain_id: 'dom-3',
+          type: 'A',
+          name: '@',
+          value: '185.190.140.10',
+          ttl: 14400,
+          synced_with_dynadot: true,
+          created_at: new Date(Date.now() - 3600000 * 2).toISOString()
+        },
+        {
+          id: 'dns-rec-2',
+          domain_id: 'dom-3',
+          type: 'CNAME',
+          name: 'www',
+          value: 'dns.weel-tech.fr',
+          ttl: 14400,
+          synced_with_dynadot: true,
+          created_at: new Date(Date.now() - 3600000 * 2).toISOString()
+        },
+        {
+          id: 'dns-rec-3',
+          domain_id: 'dom-3',
+          type: 'MX',
+          name: '@',
+          value: 'mail.weel-agency.net',
+          ttl: 14400,
+          priority: 10,
+          synced_with_dynadot: false,
+          created_at: new Date(Date.now() - 3600000 * 2).toISOString()
+        }
+      ];
+      setLocalData('dns_records', defaultDnsRecords);
+    }
+
+    if (table === 'subscriptions' && !localStorage.getItem('weel_tech_subscriptions')) {
+      const defaultSubscriptions = [
+        {
+          id: 'sub-demo-123',
+          user_id: 'demo-user-123',
+          plan_id: 'starter',
+          status: 'active',
+          current_period_start: new Date(Date.now() - 3600000 * 24 * 10).toISOString(),
+          current_period_end: new Date(Date.now() + 3600000 * 24 * 20).toISOString(),
+          cancel_at_period_end: false,
+          stripe_subscription_id: 'sub_mock_starter123',
+          stripe_customer_id: 'cus_mock_123',
+          created_at: new Date(Date.now() - 3600000 * 24 * 10).toISOString()
+        }
+      ];
+      setLocalData('subscriptions', defaultSubscriptions);
     }
 
     let list = getLocalData<any[]>(table, []);

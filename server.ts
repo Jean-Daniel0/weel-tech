@@ -980,6 +980,508 @@ app.post('/api/edge/purchase-domain', async (req, res) => {
 });
 
 /**
+ * 5d. Endpoint: /api/edge/sync-dns-record
+ * This pushes a DNS record change to Dynadot API and returns success status.
+ */
+app.post('/api/edge/sync-dns-record', async (req, res) => {
+  try {
+    const { record, domainName, action } = req.body;
+
+    if (!record || !domainName || !action) {
+      return res.status(400).json({ error: "Paramètres manquants ('record', 'domainName', 'action' requis)." });
+    }
+
+    const dynadotApiKey = process.env.DYNADOT_API_KEY;
+    const steps: string[] = [];
+    let isSimulated = true;
+
+    steps.push(`[API] Déclenchement de la synchronisation DNS pour ${domainName} (${action.toUpperCase()})`);
+
+    if (dynadotApiKey) {
+      try {
+        const dCommand = action === 'delete' ? 'delete_dns' : 'set_dns2';
+        const url = `https://api.dynadot.com/api3.json?key=${dynadotApiKey}&command=${dCommand}&domain=${encodeURIComponent(domainName)}&type0=${record.type}&host0=${encodeURIComponent(record.name)}&target0=${encodeURIComponent(record.value)}&ttl0=${record.ttl}`;
+        const response = await fetch(url);
+        if (response.ok) {
+          steps.push(`✓ Synchronisation de l'enregistrement ${record.type} pour "${domainName}" réussie sur Dynadot.`);
+          isSimulated = false;
+        } else {
+          throw new Error("Failed Dynadot response");
+        }
+      } catch (err) {
+        console.error("Real Dynadot DNS Sync failed, falling back to simulation:", err);
+        steps.push(`[SIMULATION] Pousse DNS simulée vers Dynadot : ${record.type} ${record.name} -> ${record.value} (TTL: ${record.ttl})`);
+      }
+    } else {
+      steps.push(`[SIMULATION] Enregistrement DNS poussé vers Dynadot : ${record.type} ${record.name} -> ${record.value} (TTL: ${record.ttl}, Priorité: ${record.priority || 'N/A'})`);
+    }
+
+    steps.push(`✓ Enregistrement "${record.type}" synchronisé et validé.`);
+
+    return res.json({
+      success: true,
+      synced: true,
+      steps,
+      isSimulated
+    });
+
+  } catch (error: any) {
+    console.error("Error in sync-dns-record:", error);
+    return res.status(500).json({ error: "Une erreur est survenue lors de la synchronisation DNS." });
+  }
+});
+
+// --- STRIPE BILLING & WEBHOOK FOR WEEL-TECH SUBSCRIPTIONS ---
+
+const SUBS_FILE_PATH = path.join(process.cwd(), 'subscriptions-backend.json');
+
+// Helper to load backend subscriptions from local JSON storage
+const getBackendSubscriptions = (): any[] => {
+  try {
+    if (fs.existsSync(SUBS_FILE_PATH)) {
+      return JSON.parse(fs.readFileSync(SUBS_FILE_PATH, 'utf8'));
+    }
+  } catch (e) {
+    console.error("Error reading backend subscriptions:", e);
+  }
+  return [];
+};
+
+// Helper to save subscription to local JSON storage
+const saveBackendSubscription = (sub: any) => {
+  try {
+    const subs = getBackendSubscriptions();
+    const index = subs.findIndex(s => s.user_id === sub.user_id);
+    if (index !== -1) {
+      subs[index] = { ...subs[index], ...sub, updated_at: new Date().toISOString() };
+    } else {
+      subs.push({
+        id: sub.id || 'sub-' + Math.random().toString(36).substring(2, 11),
+        created_at: new Date().toISOString(),
+        ...sub
+      });
+    }
+    fs.writeFileSync(SUBS_FILE_PATH, JSON.stringify(subs, null, 2));
+  } catch (e) {
+    console.error("Error saving backend subscription:", e);
+  }
+};
+
+/**
+ * Endpoint: Create a Stripe Checkout Session for classic subscription
+ */
+app.post('/api/stripe/create-subscription-checkout', async (req, res) => {
+  const { userId, plan, email } = req.body;
+  const devUrl = process.env.APP_URL || `http://localhost:${PORT}`;
+
+  if (!userId || !plan) {
+    return res.status(400).json({ error: "userId et plan sont requis." });
+  }
+
+  const stripeKey = process.env.STRIPE_SECRET_KEY;
+  if (!stripeKey) {
+    // Generate simulated checkout redirect URL
+    const simulationUrl = `${devUrl}/stripe-billing-simulation?userId=${encodeURIComponent(userId)}&plan=${encodeURIComponent(plan)}&email=${encodeURIComponent(email || 'demo@weel-tech.fr')}`;
+    return res.json({
+      url: simulationUrl,
+      simulated: true,
+      message: "STRIPE_SECRET_KEY non configurée. Redirection vers la simulation de paiement."
+    });
+  }
+
+  try {
+    const stripe = getStripe();
+    
+    // Create Stripe Checkout Session for standard subscription
+    const amount = plan === 'starter' ? 1900 : plan === 'pro' ? 4900 : 9900;
+    
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      mode: 'subscription',
+      line_items: [
+        {
+          price_data: {
+            currency: 'eur',
+            product_data: {
+              name: `Abonnement Weel-Tech - Plan ${plan.toUpperCase()}`,
+              description: `Accès complet au plan ${plan} de Weel-Tech`,
+            },
+            unit_amount: amount,
+            recurring: {
+              interval: 'month',
+            },
+          },
+          quantity: 1,
+        },
+      ],
+      customer_email: email || undefined,
+      success_url: `${devUrl}/?billing-success=true&plan=${plan}`,
+      cancel_url: `${devUrl}/?billing-cancel=true`,
+      metadata: {
+        userId: userId,
+        plan: plan,
+        email: email || ''
+      }
+    });
+
+    return res.json({ url: session.url });
+  } catch (err: any) {
+    console.error("Error creating Stripe subscription checkout session:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Endpoint: GET current subscription status for a user
+ */
+app.get('/api/subscription/status', (req, res) => {
+  const { userId } = req.query;
+  if (!userId) {
+    return res.status(400).json({ error: "userId requis." });
+  }
+
+  const subs = getBackendSubscriptions();
+  const userSub = subs.find(s => s.user_id === userId);
+
+  return res.json({ subscription: userSub || null });
+});
+
+/**
+ * Edge Function Webhook: stripe-subscription-webhook
+ * Updates subscriptions table and profiles plan according to Stripe subscription events
+ */
+app.post('/api/edge/stripe-subscription-webhook', async (req, res) => {
+  const sig = req.headers['stripe-signature'];
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+  let event: any;
+
+  try {
+    if (process.env.STRIPE_SECRET_KEY && webhookSecret && sig) {
+      const stripe = getStripe();
+      const payload = (req as any).rawBody || JSON.stringify(req.body);
+      event = stripe.webhooks.constructEvent(payload, sig as string, webhookSecret);
+    } else {
+      event = req.body;
+      console.log("Processing direct or simulated subscription webhook payload:", event);
+    }
+  } catch (err: any) {
+    console.error("Webhook signature verification failed:", err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  try {
+    let planToSet: string | null = null;
+    let userIdToSet: string | null = null;
+    let stripeSubscriptionId: string | null = null;
+    let stripeCustomerId: string | null = null;
+    let subStatus: string = 'active';
+    let updateType = 'none';
+
+    if (event.type === 'checkout.session.completed') {
+      const session = event.data?.object;
+      if (session.mode === 'subscription') {
+        userIdToSet = session.metadata?.userId;
+        planToSet = session.metadata?.plan || 'starter';
+        stripeSubscriptionId = session.subscription;
+        stripeCustomerId = session.customer;
+        subStatus = 'active';
+        updateType = 'checkout';
+      }
+    } else if (event.type === 'customer.subscription.created' || event.type === 'customer.subscription.updated') {
+      const subscription = event.data?.object;
+      stripeSubscriptionId = subscription.id;
+      stripeCustomerId = subscription.customer;
+      subStatus = subscription.status; // 'active', 'trialing', 'past_due', 'canceled', etc.
+      
+      // Attempt to find userId via local subscriptions first, or metadata
+      userIdToSet = subscription.metadata?.userId;
+      planToSet = subscription.metadata?.plan;
+
+      if (!userIdToSet) {
+        const localSubs = getBackendSubscriptions();
+        const found = localSubs.find(s => s.stripe_subscription_id === stripeSubscriptionId);
+        if (found) {
+          userIdToSet = found.user_id;
+          planToSet = found.plan_id;
+        }
+      }
+      updateType = 'update';
+    } else if (event.type === 'customer.subscription.deleted') {
+      const subscription = event.data?.object;
+      stripeSubscriptionId = subscription.id;
+      subStatus = 'canceled';
+      planToSet = 'starter'; // Default or degraded plan
+
+      const localSubs = getBackendSubscriptions();
+      const found = localSubs.find(s => s.stripe_subscription_id === stripeSubscriptionId);
+      if (found) {
+        userIdToSet = found.user_id;
+      }
+      updateType = 'deleted';
+    } else if (event.type === 'invoice.payment_failed') {
+      const invoice = event.data?.object;
+      stripeSubscriptionId = invoice.subscription;
+      subStatus = 'past_due';
+      planToSet = 'starter'; // Degrade due to failed payment
+
+      const localSubs = getBackendSubscriptions();
+      const found = localSubs.find(s => s.stripe_subscription_id === stripeSubscriptionId);
+      if (found) {
+        userIdToSet = found.user_id;
+      }
+      updateType = 'payment_failed';
+    }
+
+    if (userIdToSet) {
+      const periodStart = new Date().toISOString();
+      const periodEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+      // 1. Persist Subscription state locally
+      const subRecord = {
+        id: stripeSubscriptionId || 'sub-' + Math.random().toString(36).substring(2, 11),
+        user_id: userIdToSet,
+        plan_id: planToSet || 'starter',
+        status: subStatus,
+        current_period_start: periodStart,
+        current_period_end: periodEnd,
+        cancel_at_period_end: false,
+        stripe_subscription_id: stripeSubscriptionId || 'sub_simulated_' + Math.random().toString(36).substring(2, 9),
+        stripe_customer_id: stripeCustomerId || 'cus_simulated_' + Math.random().toString(36).substring(2, 9),
+        updated_at: new Date().toISOString()
+      };
+
+      saveBackendSubscription(subRecord);
+
+      // 2. Persist in real Supabase if connected
+      const supabase = getSupabase();
+      if (supabase) {
+        // Update user profile plan
+        if (planToSet) {
+          const { error: pErr } = await supabase
+            .from('profiles')
+            .update({ plan: planToSet })
+            .eq('id', userIdToSet);
+          if (pErr) console.error("Error updating profile in Supabase from webhook:", pErr);
+        }
+
+        // Upsert subscription
+        const { error: sErr } = await supabase
+          .from('subscriptions')
+          .upsert({
+            id: subRecord.id,
+            user_id: subRecord.user_id,
+            plan_id: subRecord.plan_id,
+            status: subRecord.status,
+            current_period_start: subRecord.current_period_start,
+            current_period_end: subRecord.current_period_end,
+            cancel_at_period_end: subRecord.cancel_at_period_end,
+            stripe_subscription_id: subRecord.stripe_subscription_id,
+            stripe_customer_id: subRecord.stripe_customer_id,
+            updated_at: subRecord.updated_at
+          });
+        if (sErr) console.error("Error upserting subscription in Supabase from webhook:", sErr);
+      }
+
+      console.log(`[Subscription Webhook] Processed event ${event.type}. User: ${userIdToSet}, Plan: ${planToSet}, Sub Status: ${subStatus}`);
+      return res.json({
+        success: true,
+        processed: true,
+        type: updateType,
+        subscription: subRecord
+      });
+    }
+
+    return res.json({
+      success: true,
+      processed: false,
+      reason: `Event type ${event.type} processed but no matching userId found.`
+    });
+
+  } catch (err: any) {
+    console.error("Error processing Stripe Subscription Webhook:", err);
+    return res.status(500).json({ error: "Internal webhook processing error." });
+  }
+});
+
+/**
+ * Route: Visual Stripe Checkout Simulator Page for Subscriptions
+ */
+app.get('/stripe-billing-simulation', (req, res) => {
+  const { userId, plan, email } = req.query;
+  const devUrl = process.env.APP_URL || `http://localhost:${PORT}`;
+
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="fr">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Simulation Stripe Billing Checkout</title>
+      <script src="https://cdn.tailwindcss.com"></script>
+      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+      <style>
+        body { font-family: 'Inter', sans-serif; }
+      </style>
+    </head>
+    <body class="bg-[#0A0E1A] text-slate-100 min-h-screen flex items-center justify-center p-4">
+      <div class="max-w-lg w-full bg-[#111726] rounded-2xl shadow-2xl border border-slate-800 p-8 space-y-6">
+        
+        <!-- Header -->
+        <div class="flex items-center justify-between border-b border-slate-800 pb-4">
+          <div class="flex items-center gap-2">
+            <div class="bg-indigo-600 text-white p-2 rounded-xl">
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+              </svg>
+            </div>
+            <div>
+              <h2 class="text-xs font-bold uppercase tracking-widest text-indigo-400">Stripe Checkout</h2>
+              <p class="text-lg font-bold font-display text-white">Weel-Tech Billing</p>
+            </div>
+          </div>
+          <span class="text-2xs font-bold text-amber-500 bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/20 uppercase tracking-wide">Simulateur</span>
+        </div>
+
+        <div class="space-y-4">
+          <p class="text-sm text-slate-300 leading-relaxed">
+            Configurez et simulez la réponse de la passerelle Stripe pour l'abonnement au plan <span class="text-indigo-400 uppercase font-bold">${plan || 'pro'}</span>.
+          </p>
+
+          <!-- Client details -->
+          <div class="bg-slate-900/60 rounded-xl p-4.5 space-y-2 text-xs font-mono border border-slate-800 text-slate-300">
+            <p><span class="font-bold text-slate-500">Utilisateur (ID):</span> ${userId || 'demo-user-123'}</p>
+            <p><span class="font-bold text-slate-500">Client Email:</span> ${email || 'demo@weel-tech.fr'}</p>
+            <p><span class="font-bold text-slate-500">Plan Choisi:</span> <span class="text-indigo-400 uppercase font-bold">${plan || 'pro'}</span></p>
+            <p><span class="font-bold text-slate-500">Tarif Mensuel:</span> ${plan === 'starter' ? '19,00 €' : plan === 'pro' ? '49,00 €' : '99,00 €'} / mois</p>
+          </div>
+        </div>
+
+        <!-- Simulation Options -->
+        <div class="space-y-3 pt-2">
+          <div class="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Simuler un événement de paiement :</div>
+          
+          <button 
+            onclick="triggerWebhook('checkout.session.completed')" 
+            class="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-xl font-semibold transition text-sm shadow-md flex items-center justify-center gap-2 cursor-pointer"
+          >
+            <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+            Succès - Valider l'Abonnement (checkout.session.completed)
+          </button>
+          
+          <button 
+            onclick="triggerWebhook('invoice.payment_failed')" 
+            class="w-full bg-[#182030] hover:bg-[#1e293c] text-red-400 border border-red-500/10 py-3 rounded-xl font-semibold transition text-sm flex items-center justify-center gap-2 cursor-pointer"
+          >
+            <span class="w-2 h-2 rounded-full bg-red-500"></span>
+            Échec - Simuler un Rejet de Carte (invoice.payment_failed)
+          </button>
+
+          <button 
+            onclick="triggerWebhook('customer.subscription.deleted')" 
+            class="w-full bg-[#182030] hover:bg-[#1e293c] text-amber-400 border border-amber-500/10 py-3 rounded-xl font-semibold transition text-sm flex items-center justify-center gap-2 cursor-pointer"
+          >
+            <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+            Résiliation - Annuler l'Abonnement (customer.subscription.deleted)
+          </button>
+        </div>
+
+        <div class="flex items-center justify-between border-t border-slate-800 pt-4">
+          <button 
+            onclick="window.location.href='/?billing-cancel=true'" 
+            class="text-xs font-semibold text-slate-400 hover:text-white transition cursor-pointer"
+          >
+            &larr; Annuler la transaction
+          </button>
+          <p class="text-[10px] text-slate-500">
+            Weel-Tech &middot; Bac à sable de Facturation
+          </p>
+        </div>
+
+      </div>
+
+      <script>
+        async function triggerWebhook(eventType) {
+          const params = new URLSearchParams(window.location.search);
+          const userId = params.get('userId') || 'demo-user-123';
+          const plan = params.get('plan') || 'pro';
+          const email = params.get('email') || 'demo@weel-tech.fr';
+          
+          const subId = 'sub_sim_' + Math.random().toString(36).substring(2, 9);
+          const custId = 'cus_sim_' + Math.random().toString(36).substring(2, 9);
+          
+          let payload = {};
+          
+          if (eventType === 'checkout.session.completed') {
+            payload = {
+              type: 'checkout.session.completed',
+              data: {
+                object: {
+                  mode: 'subscription',
+                  subscription: subId,
+                  customer: custId,
+                  amount_total: plan === 'starter' ? 1900 : plan === 'pro' ? 4900 : 9900,
+                  currency: 'eur',
+                  customer_details: { email: email },
+                  metadata: { userId, plan, email }
+                }
+              }
+            };
+          } else if (eventType === 'invoice.payment_failed') {
+            payload = {
+              type: 'invoice.payment_failed',
+              data: {
+                object: {
+                  subscription: subId,
+                  customer: custId,
+                  metadata: { userId, plan, email }
+                }
+              }
+            };
+          } else if (eventType === 'customer.subscription.deleted') {
+            payload = {
+              type: 'customer.subscription.deleted',
+              data: {
+                object: {
+                  id: subId,
+                  customer: custId,
+                  status: 'canceled',
+                  metadata: { userId, plan, email }
+                }
+              }
+            };
+          }
+
+          try {
+            const res = await fetch('/api/edge/stripe-subscription-webhook', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+            
+            if (res.ok) {
+              if (eventType === 'checkout.session.completed') {
+                window.location.href = '/?billing-success=true&plan=' + plan;
+              } else if (eventType === 'invoice.payment_failed') {
+                window.location.href = '/?billing-failed=true';
+              } else {
+                window.location.href = '/?billing-canceled=true';
+              }
+            } else {
+              alert("Erreur de simulation webhook.");
+            }
+          } catch (e) {
+            console.error(e);
+            alert("Erreur lors de l'appel au simulateur de webhook.");
+          }
+        }
+      </script>
+    </body>
+    </html>
+  `);
+});
+
+/**
  * 6. Endpoint: /api/widget/pay
  * This is called by the vendza-pay-widget.js component on third-party sites.
  * It validates the developer's API Key, creates the transaction, and handles
@@ -1159,6 +1661,152 @@ app.post('/api/widget/pay', async (req, res) => {
     success: finalStatus === 'succeeded',
     transaction: newTx,
     transferDetails
+  });
+});
+
+/**
+ * Endpoint: Get Cloudflare Web Analytics
+ * Fetches real analytics via Cloudflare GraphQL API if API Key is configured, 
+ * otherwise returns beautifully simulated 30-day analytics data.
+ */
+app.get('/api/cloudflare/analytics', async (req, res) => {
+  const { domain, siteId } = req.query;
+  if (!domain) {
+    return res.status(400).json({ error: "Le domaine est requis." });
+  }
+
+  const cfApiKey = process.env.CLOUDFLARE_API_KEY;
+  const cfAccountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+
+  if (cfApiKey && cfAccountId) {
+    try {
+      // Structure the GraphQL Query to get rumAnalyticsAdaptiveGroups (Web Analytics)
+      // Grouped by date over the last 30 days
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      const dateString = thirtyDaysAgo.toISOString().split('T')[0];
+
+      const query = `
+        query GetWebAnalytics($accountId: String!, $domain: String!, $startDate: String!) {
+          viewer {
+            accounts(filter: {accountTag: $accountId}) {
+              rumAnalyticsAdaptiveGroups(
+                limit: 100,
+                filter: {
+                  and: [
+                    { date_geq: $startDate },
+                    { requestHost: $domain }
+                  ]
+                },
+                orderBy: [date_ASC]
+              ) {
+                sum {
+                  pageViews
+                  visits
+                }
+                dimensions {
+                  date
+                }
+              }
+            }
+          }
+        }
+      `;
+
+      const response = await fetch('https://api.cloudflare.com/client/v4/graphql', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${cfApiKey}`
+        },
+        body: JSON.stringify({
+          query,
+          variables: {
+            accountId: cfAccountId,
+            domain: domain.toString(),
+            startDate: dateString
+          }
+        })
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        const dataGroups = result.data?.viewer?.accounts?.[0]?.rumAnalyticsAdaptiveGroups || [];
+        
+        // Map to client-friendly format
+        const analytics = dataGroups.map((g: any) => ({
+          date: g.dimensions.date,
+          visitors: g.sum.visits || 0,
+          pageViews: g.sum.pageViews || 0
+        }));
+
+        return res.json({
+          source: 'cloudflare',
+          simulated: false,
+          analytics
+        });
+      } else {
+        const errorText = await response.text();
+        console.error("Cloudflare GraphQL API error response:", errorText);
+        throw new Error("Could not fetch from Cloudflare API");
+      }
+    } catch (err: any) {
+      console.error("Error calling real Cloudflare API, falling back to simulator:", err);
+    }
+  }
+
+  // --- SIMULATOR FOR CLOUDFLARE WEB ANALYTICS ---
+  // Seed generation based on site ID or domain name so the charts look stable but unique
+  const seedString = (siteId || domain || 'default-seed').toString();
+  let hash = 0;
+  for (let i = 0; i < seedString.length; i++) {
+    hash = seedString.charCodeAt(i) + ((hash << 5) - hash);
+  }
+
+  const getSeededRandom = (dayOffset: number) => {
+    const x = Math.sin(hash + dayOffset) * 10000;
+    return x - Math.floor(x);
+  };
+
+  const analyticsList = [];
+  const today = new Date();
+  
+  // Base visitor count generated randomly but anchored to a reasonable volume
+  const baseVisitors = 50 + Math.abs(hash % 150); // 50 to 200 daily visitors base
+
+  for (let i = 29; i >= 0; i--) {
+    const currentDate = new Date();
+    currentDate.setDate(today.getDate() - i);
+    const dateStr = currentDate.toISOString().split('T')[0];
+    
+    // Add weekly rhythm (lower traffic on weekends: Sat, Sun are index 6, 0)
+    const dayOfWeek = currentDate.getDay();
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+    const dayFactor = isWeekend ? 0.6 : 1.1; // lower traffic on weekend
+
+    // Random variation around the base (-30% to +30%)
+    const randomVariation = 0.7 + getSeededRandom(i) * 0.6;
+
+    // Gradual overall growth trend
+    const trendFactor = 1 + (30 - i) * 0.008; // small growth of 0.8% per day over the 30 days
+
+    const visitors = Math.round(baseVisitors * dayFactor * randomVariation * trendFactor);
+    // Page views is typically 1.5 to 3.5 times the unique visitors
+    const pageViewsFactor = 1.8 + getSeededRandom(i + 100) * 1.5;
+    const pageViews = Math.round(visitors * pageViewsFactor);
+
+    analyticsList.push({
+      date: dateStr,
+      visitors: Math.max(1, visitors),
+      pageViews: Math.max(visitors, pageViews)
+    });
+  }
+
+  return res.json({
+    source: 'cloudflare-simulator',
+    simulated: true,
+    message: "Données générées par le simulateur Cloudflare Web Analytics (clés d'API non configurées).",
+    analytics: analyticsList
   });
 });
 

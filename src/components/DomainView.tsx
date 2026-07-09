@@ -1,7 +1,7 @@
 import React, { useState, useEffect, FormEvent } from 'react';
 import { supabase } from '../lib/supabase';
 import { DomainName, Site, UserProfile } from '../types';
-import { Link2, Search, Plus, CheckCircle, AlertTriangle, ShieldCheck, RefreshCw, Unlink, Globe, Settings, Network, Check } from 'lucide-react';
+import { Link2, Search, Plus, CheckCircle, AlertTriangle, ShieldCheck, RefreshCw, Unlink, Globe, Settings, Network, Check, ArrowLeft, Trash2, Edit } from 'lucide-react';
 
 interface DomainViewProps {
   userProfile: UserProfile | null;
@@ -34,6 +34,196 @@ export default function DomainView({ userProfile }: DomainViewProps) {
   const [purchaseSiteId, setPurchaseSiteId] = useState<string>('');
   const [purchaseSteps, setPurchaseSteps] = useState<string[]>([]);
   const [purchaseStatusText, setPurchaseStatusText] = useState<string>('');
+
+  // DNS Records Management States
+  const [selectedDomainForDns, setSelectedDomainForDns] = useState<DomainName | null>(null);
+  const [dnsRecords, setDnsRecords] = useState<any[]>([]);
+  const [dnsLoading, setDnsLoading] = useState(false);
+  const [syncLogs, setSyncLogs] = useState<string[]>([]);
+  const [syncingRecordId, setSyncingRecordId] = useState<string | null>(null);
+
+  // DNS Form State
+  const [dnsType, setDnsType] = useState<'A' | 'CNAME' | 'MX' | 'TXT'>('A');
+  const [dnsName, setDnsName] = useState('@');
+  const [dnsValue, setDnsValue] = useState('');
+  const [dnsTtl, setDnsTtl] = useState<number>(14400);
+  const [dnsPriority, setDnsPriority] = useState<number>(10);
+  const [editingRecordId, setEditingRecordId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (selectedDomainForDns) {
+      fetchDnsRecords(selectedDomainForDns.id);
+    }
+  }, [selectedDomainForDns]);
+
+  const fetchDnsRecords = async (domainId: string) => {
+    setDnsLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('dns_records')
+        .select('*')
+        .eq('domain_id', domainId);
+      if (error) throw error;
+      setDnsRecords(data || []);
+    } catch (err: any) {
+      console.error("Error fetching DNS records:", err);
+      setErrorMessage("Impossible de charger les enregistrements DNS.");
+    } finally {
+      setDnsLoading(false);
+    }
+  };
+
+  const handleUpdateConnectionStatus = async (domainId: string, status: 'pending' | 'propagating' | 'active' | 'failed') => {
+    try {
+      const { error } = await supabase
+        .from('domains')
+        .update({ connection_status: status })
+        .eq('id', domainId);
+      if (error) throw error;
+
+      setDomains(prev => prev.map(d => d.id === domainId ? { ...d, connection_status: status } : d));
+      if (selectedDomainForDns && selectedDomainForDns.id === domainId) {
+        setSelectedDomainForDns(prev => prev ? { ...prev, connection_status: status } : null);
+      }
+    } catch (err: any) {
+      console.error("Error updating connection status:", err);
+    }
+  };
+
+  const handleSaveDnsRecord = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!selectedDomainForDns || !dnsValue) return;
+
+    setDnsLoading(true);
+    setSyncLogs([]);
+    setErrorMessage(null);
+
+    const isEdit = !!editingRecordId;
+    const tempId = editingRecordId || 'dns-rec-' + Math.random().toString(36).substring(2, 11);
+
+    const recordPayload = {
+      id: tempId,
+      domain_id: selectedDomainForDns.id,
+      type: dnsType,
+      name: dnsName,
+      value: dnsValue,
+      ttl: dnsTtl,
+      priority: dnsType === 'MX' ? dnsPriority : undefined,
+      synced_with_dynadot: false,
+      created_at: new Date().toISOString()
+    };
+
+    setSyncingRecordId(tempId);
+
+    try {
+      const response = await fetch('/api/edge/sync-dns-record', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          record: recordPayload,
+          domainName: selectedDomainForDns.domain_name,
+          action: isEdit ? 'edit' : 'add'
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("L'API de synchronisation DNS a renvoyé une erreur.");
+      }
+
+      const syncResult = await response.json();
+      if (syncResult.steps) {
+        setSyncLogs(syncResult.steps);
+      }
+
+      const finalRecord = {
+        ...recordPayload,
+        synced_with_dynadot: true
+      };
+
+      if (isEdit) {
+        const { error } = await supabase
+          .from('dns_records')
+          .update(finalRecord)
+          .eq('id', editingRecordId);
+        if (error) throw error;
+
+        setDnsRecords(prev => prev.map(r => r.id === editingRecordId ? finalRecord : r));
+      } else {
+        const { error } = await supabase
+          .from('dns_records')
+          .insert([finalRecord]);
+        if (error) throw error;
+
+        setDnsRecords(prev => [...prev, finalRecord]);
+      }
+
+      // Reset
+      setDnsValue('');
+      setDnsName('@');
+      setDnsType('A');
+      setDnsTtl(14400);
+      setDnsPriority(10);
+      setEditingRecordId(null);
+    } catch (err: any) {
+      console.error("DNS sync save error:", err);
+      setErrorMessage("Une erreur s'est produite lors de la synchronisation de l'enregistrement DNS.");
+    } finally {
+      setDnsLoading(false);
+      setSyncingRecordId(null);
+    }
+  };
+
+  const handleDeleteDnsRecord = async (recordId: string) => {
+    if (!selectedDomainForDns) return;
+    if (!confirm("Voulez-vous vraiment supprimer cet enregistrement DNS ?")) return;
+
+    setDnsLoading(true);
+    setSyncLogs([]);
+    setErrorMessage(null);
+    setSyncingRecordId(recordId);
+
+    const recordToDelete = dnsRecords.find(r => r.id === recordId);
+    if (!recordToDelete) return;
+
+    try {
+      const response = await fetch('/api/edge/sync-dns-record', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          record: recordToDelete,
+          domainName: selectedDomainForDns.domain_name,
+          action: 'delete'
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Erreur de l'API lors de la suppression de l'enregistrement.");
+      }
+
+      const syncResult = await response.json();
+      if (syncResult.steps) {
+        setSyncLogs(syncResult.steps);
+      }
+
+      const { error } = await supabase
+        .from('dns_records')
+        .delete()
+        .eq('id', recordId);
+      if (error) throw error;
+
+      setDnsRecords(prev => prev.filter(r => r.id !== recordId));
+    } catch (err: any) {
+      console.error("DNS sync delete error:", err);
+      setErrorMessage("Une erreur s'est produite lors de la suppression du DNS.");
+    } finally {
+      setDnsLoading(false);
+      setSyncingRecordId(null);
+    }
+  };
 
   useEffect(() => {
     fetchDomainsAndSites();
@@ -248,6 +438,345 @@ export default function DomainView({ userProfile }: DomainViewProps) {
       setErrorMessage("Impossible de supprimer le domaine.");
     }
   };
+
+  if (selectedDomainForDns) {
+    const connStatus = selectedDomainForDns.connection_status || 'pending';
+    let statusLabel = 'En attente de propagation';
+    let statusBg = 'bg-slate-50 border-slate-200 text-slate-600';
+    let statusDot = 'bg-slate-400';
+
+    if (connStatus === 'active') {
+      statusLabel = 'Actif & Connecté';
+      statusBg = 'bg-emerald-50 border-emerald-200 text-emerald-700';
+      statusDot = 'bg-emerald-500';
+    } else if (connStatus === 'propagating') {
+      statusLabel = 'Propagation en cours...';
+      statusBg = 'bg-amber-50 border-amber-200 text-amber-700';
+      statusDot = 'bg-amber-500 animate-pulse';
+    } else if (connStatus === 'failed') {
+      statusLabel = 'Échec de la connexion';
+      statusBg = 'bg-red-50 border-red-200 text-red-700';
+      statusDot = 'bg-red-500';
+    }
+
+    return (
+      <div className="space-y-6">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <button
+              onClick={() => {
+                setSelectedDomainForDns(null);
+                setEditingRecordId(null);
+                setDnsValue('');
+                setDnsName('@');
+                setSyncLogs([]);
+              }}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-brand-dark transition cursor-pointer mb-1"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              Retour aux domaines
+            </button>
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-2xl font-bold font-display text-brand-dark tracking-tight">
+                Gérer le DNS : <span className="text-brand-blue">{selectedDomainForDns.domain_name}</span>
+              </h1>
+              <span className="text-2xs font-bold px-2 py-0.5 rounded-lg bg-orange-100 text-orange-800 border border-orange-200 uppercase tracking-wider">
+                Externe
+              </span>
+            </div>
+            <p className="text-sm text-gray-500">
+              Configurez et synchronisez les zones DNS pour pointer le domaine vers votre hébergement.
+            </p>
+          </div>
+
+          {/* Connection Status Indicator */}
+          <div className="flex flex-col sm:items-end gap-1.5">
+            <span className="text-3xs font-bold uppercase tracking-wider text-slate-400">Statut de connexion</span>
+            <div className="flex items-center gap-2">
+              <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-bold ${statusBg}`}>
+                <span className={`w-2 h-2 rounded-full ${statusDot}`} />
+                {statusLabel}
+              </div>
+              
+              <select
+                value={connStatus}
+                onChange={(e) => handleUpdateConnectionStatus(selectedDomainForDns.id, e.target.value as any)}
+                className="bg-white border border-slate-200 rounded-xl px-2 py-1.5 text-xs font-semibold text-slate-600 outline-none focus:ring-1 focus:ring-brand-blue cursor-pointer"
+                title="Simuler un changement de statut de connexion"
+              >
+                <option value="pending">En attente (Pending)</option>
+                <option value="propagating">En cours (Propagating)</option>
+                <option value="active">Actif (Active)</option>
+                <option value="failed">Échec (Failed)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* Explicit Reminder Alert Banner */}
+        <div className="p-4 bg-amber-50 border border-amber-200 text-amber-900 rounded-xl flex items-start gap-3">
+          <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+          <div className="text-xs sm:text-sm space-y-1">
+            <p className="font-bold">Rappel de configuration</p>
+            <p>
+              Ce domaine n'est pas connecté à un site Vendza-Site. Configurez vos propres enregistrements DNS pour le faire pointer vers votre hébergement actuel.
+            </p>
+          </div>
+        </div>
+
+        {/* Error Message */}
+        {errorMessage && (
+          <div className="p-3.5 bg-red-50 border border-red-100 text-red-700 rounded-xl text-xs sm:text-sm">
+            {errorMessage}
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* DNS Add/Edit Form Panel */}
+          <div className="main-card p-5 sm:p-6 space-y-4 h-fit">
+            <h3 className="text-base font-bold text-brand-dark font-display flex items-center gap-2">
+              <Settings className="w-5 h-5 text-brand-blue" />
+              {editingRecordId ? "Modifier l'enregistrement" : "Ajouter un enregistrement"}
+            </h3>
+            <p className="text-xs text-slate-500">
+              Saisissez les paramètres de votre zone DNS. La synchronisation automatique avec Dynadot se lancera dès validation.
+            </p>
+
+            <form onSubmit={handleSaveDnsRecord} className="space-y-4 pt-2">
+              <div>
+                <label className="block text-2xs font-bold text-slate-500 uppercase tracking-wider mb-1">Type d'enregistrement</label>
+                <select
+                  value={dnsType}
+                  onChange={(e) => {
+                    const type = e.target.value as any;
+                    setDnsType(type);
+                    if (type === 'MX' && dnsName === '@') {
+                      setDnsName('@');
+                    }
+                  }}
+                  className="block w-full px-3 py-2 sleek-input text-xs text-brand-dark cursor-pointer"
+                >
+                  <option value="A">A (Adresse IPv4)</option>
+                  <option value="CNAME">CNAME (Alias)</option>
+                  <option value="MX">MX (Serveur de Messagerie)</option>
+                  <option value="TXT">TXT (Texte brut)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-2xs font-bold text-slate-500 uppercase tracking-wider mb-1">Nom (Host)</label>
+                <input
+                  type="text"
+                  required
+                  value={dnsName}
+                  onChange={(e) => setDnsName(e.target.value)}
+                  placeholder="Ex. @ ou www"
+                  className="block w-full px-3 py-2 sleek-input text-xs text-brand-dark"
+                />
+              </div>
+
+              <div>
+                <label className="block text-2xs font-bold text-slate-500 uppercase tracking-wider mb-1">Valeur (Target)</label>
+                <input
+                  type="text"
+                  required
+                  value={dnsValue}
+                  onChange={(e) => setDnsValue(e.target.value)}
+                  placeholder={dnsType === 'A' ? "Ex. 185.190.140.10" : dnsType === 'CNAME' ? "Ex. ghs.google.com" : "Ex. mail.mon-domaine.com"}
+                  className="block w-full px-3 py-2 sleek-input text-xs text-brand-dark"
+                />
+              </div>
+
+              {dnsType === 'MX' && (
+                <div>
+                  <label className="block text-2xs font-bold text-slate-500 uppercase tracking-wider mb-1">Priorité (MX uniquement)</label>
+                  <input
+                    type="number"
+                    required
+                    min="0"
+                    max="65535"
+                    value={dnsPriority}
+                    onChange={(e) => setDnsPriority(parseInt(e.target.value) || 10)}
+                    className="block w-full px-3 py-2 sleek-input text-xs text-brand-dark"
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="block text-2xs font-bold text-slate-500 uppercase tracking-wider mb-1">TTL (Seconds)</label>
+                <select
+                  value={dnsTtl}
+                  onChange={(e) => setDnsTtl(parseInt(e.target.value) || 14400)}
+                  className="block w-full px-3 py-2 sleek-input text-xs text-brand-dark cursor-pointer"
+                >
+                  <option value={300}>300 (5 mins)</option>
+                  <option value={600}>600 (10 mins)</option>
+                  <option value={3600}>3600 (1 hour)</option>
+                  <option value={14400}>14400 (4 hours - Standard)</option>
+                  <option value={86400}>86400 (1 day)</option>
+                </select>
+              </div>
+
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  type="submit"
+                  disabled={dnsLoading}
+                  className="flex-1 inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-brand-dark text-white rounded-xl hover:bg-black font-semibold text-xs transition cursor-pointer disabled:opacity-50"
+                >
+                  {dnsLoading ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      Synchronisation...
+                    </>
+                  ) : editingRecordId ? (
+                    "Enregistrer"
+                  ) : (
+                    "Ajouter"
+                  )}
+                </button>
+                {editingRecordId && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingRecordId(null);
+                      setDnsValue('');
+                      setDnsName('@');
+                      setDnsType('A');
+                      setDnsTtl(14400);
+                    }}
+                    className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition cursor-pointer"
+                  >
+                    Annuler
+                  </button>
+                )}
+              </div>
+            </form>
+
+            {syncLogs.length > 0 && (
+              <div className="mt-4 p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-1.5 font-mono text-4xs text-slate-500 max-h-48 overflow-y-auto">
+                <p className="font-bold text-slate-600 mb-1 border-b border-slate-200 pb-1">Logs de Synchronisation Edge :</p>
+                {syncLogs.map((log, idx) => (
+                  <div key={idx} className="leading-tight">{log}</div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* DNS Records Table Panel */}
+          <div className="lg:col-span-2 main-card p-5 sm:p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-brand-dark font-display flex items-center gap-2">
+                <Globe className="w-5 h-5 text-brand-blue" />
+                Enregistrements DNS Actuels ({dnsRecords.length})
+              </h3>
+            </div>
+
+            {dnsLoading && dnsRecords.length === 0 ? (
+              <div className="py-12 flex flex-col items-center justify-center text-slate-400 gap-3">
+                <RefreshCw className="w-6 h-6 animate-spin text-brand-blue" />
+                <span className="text-xs">Chargement des enregistrements DNS...</span>
+              </div>
+            ) : dnsRecords.length === 0 ? (
+              <div className="py-16 text-center border-2 border-dashed border-slate-100 rounded-xl space-y-2">
+                <p className="text-xs text-slate-400">Aucun enregistrement DNS configuré pour ce domaine.</p>
+                <p className="text-5xs text-slate-400 font-mono">Ajoutez un enregistrement à l'aide du panneau latéral gauche pour commencer.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto border border-slate-100 rounded-xl">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50/50 text-slate-400 font-bold font-mono text-5xs tracking-wider uppercase border-b border-slate-100">
+                      <th className="py-3.5 px-4">Type</th>
+                      <th className="py-3.5 px-4">Nom (Host)</th>
+                      <th className="py-3.5 px-4">Valeur (Target)</th>
+                      <th className="py-3.5 px-4">TTL</th>
+                      <th className="py-3.5 px-4">Dynadot Sync</th>
+                      <th className="py-3.5 px-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50 font-sans text-xs">
+                    {dnsRecords.map((rec) => {
+                      const isSyncingThis = syncingRecordId === rec.id;
+                      return (
+                        <tr key={rec.id} className="hover:bg-slate-50/30 transition">
+                          <td className="py-3 px-4">
+                            <span className="font-mono font-bold text-2xs px-2 py-0.5 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-100">
+                              {rec.type}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 font-mono font-bold text-slate-600 text-xs">
+                            {rec.name}
+                          </td>
+                          <td className="py-3 px-4 font-mono text-slate-500 break-all text-2xs">
+                            {rec.value}
+                            {rec.type === 'MX' && rec.priority !== undefined && (
+                              <span className="ml-1.5 px-1 py-0.5 bg-slate-100 text-slate-600 rounded font-bold">
+                                Priorité: {rec.priority}
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 font-mono text-slate-400 text-3xs">
+                            {rec.ttl}s
+                          </td>
+                          <td className="py-3 px-4">
+                            {rec.synced_with_dynadot ? (
+                              <span className="inline-flex items-center gap-1 text-2xs font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 border border-emerald-100 rounded-lg">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                                Synchronisé
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-2xs font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 border border-amber-100 rounded-lg animate-pulse">
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                                En attente
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                onClick={() => {
+                                  setEditingRecordId(rec.id);
+                                  setDnsType(rec.type);
+                                  setDnsName(rec.name);
+                                  setDnsValue(rec.value);
+                                  setDnsTtl(rec.ttl);
+                                  if (rec.priority !== undefined) {
+                                    setDnsPriority(rec.priority);
+                                  }
+                                }}
+                                disabled={isSyncingThis || dnsLoading}
+                                className="p-1.5 text-slate-400 hover:text-indigo-600 rounded-lg hover:bg-slate-50 transition cursor-pointer disabled:opacity-50"
+                                title="Modifier cet enregistrement"
+                              >
+                                <Edit className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteDnsRecord(rec.id)}
+                                disabled={isSyncingThis || dnsLoading}
+                                className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg hover:bg-slate-50 transition cursor-pointer disabled:opacity-50"
+                                title="Supprimer cet enregistrement"
+                              >
+                                {isSyncingThis ? (
+                                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-red-500" />
+                                ) : (
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                )}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -606,6 +1135,17 @@ export default function DomainView({ userProfile }: DomainViewProps) {
                               : (dom.usage_type === 'external' ? 'En attente de pointage' : 'Connexion automatique en cours...')
                             }
                           </span>
+
+                          {dom.usage_type === 'external' && (
+                            <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-5xs font-bold uppercase tracking-wider border ${
+                              dom.connection_status === 'active' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' :
+                              dom.connection_status === 'propagating' ? 'bg-amber-50 text-amber-700 border-amber-100 animate-pulse' :
+                              dom.connection_status === 'failed' ? 'bg-red-50 text-red-700 border-red-100' :
+                              'bg-slate-50 text-slate-700 border-slate-100'
+                            }`}>
+                              Connexion: {dom.connection_status || 'pending'}
+                            </span>
+                          )}
                         </div>
 
                         {/* Usage Type Subtext */}
@@ -640,6 +1180,15 @@ export default function DomainView({ userProfile }: DomainViewProps) {
  
                       {/* Right Block Actions */}
                       <div className="flex items-center gap-2 sm:self-start self-end">
+                        {dom.usage_type === 'external' && (
+                          <button
+                            onClick={() => setSelectedDomainForDns(dom)}
+                            className="px-2.5 py-1 text-4xs font-bold rounded-lg uppercase tracking-wider bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 transition cursor-pointer"
+                          >
+                            Gérer le DNS
+                          </button>
+                        )}
+
                         <button
                           onClick={() => handleToggleDNS(dom.id, dom.dns_configured)}
                           className={`px-2.5 py-1 text-4xs font-bold rounded-lg uppercase tracking-wider border transition cursor-pointer ${

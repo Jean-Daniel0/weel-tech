@@ -54,6 +54,19 @@ export interface DomainName {
   expires_at: string;
   linked_site_id?: string;
   usage_type?: 'vendza_site' | 'external';
+  connection_status?: 'pending' | 'propagating' | 'active' | 'failed';
+}
+
+export interface DnsRecord {
+  id: string;
+  domain_id: string;
+  type: 'A' | 'CNAME' | 'MX' | 'TXT';
+  name: string;
+  value: string;
+  ttl: number;
+  priority?: number;
+  synced_with_dynadot: boolean;
+  created_at: string;
 }
 
 export type SidebarView = 'sites' | 'pay' | 'domains' | 'settings' | 'new-site';

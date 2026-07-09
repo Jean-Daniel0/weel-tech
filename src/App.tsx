@@ -138,12 +138,12 @@ export default function App() {
   const isWorkspaceView = currentView === 'new-site';
 
   return (
-    <div className="min-h-screen bg-[#F5F7FA] flex flex-col text-brand-dark">
+    <div className="h-screen bg-[#F5F7FA] flex flex-col text-brand-dark overflow-hidden">
       {/* Header Bar */}
       {!isWorkspaceView && <Header userProfile={userProfile} onLogout={handleLogout} />}
 
       {/* Main Container Wrapper */}
-      <div className="flex-1 flex flex-col md:flex-row relative">
+      <div className="flex-1 flex flex-col md:flex-row relative overflow-hidden min-h-0">
         
         {/* Mobile Navigation Toggle Bar */}
         {!isWorkspaceView && (
@@ -163,7 +163,7 @@ export default function App() {
 
         {/* Sidebar Component with Mobile Responsiveness Drawer overlay */}
         {!isWorkspaceView && (
-          <div className={`${mobileMenuOpen ? 'block' : 'hidden'} md:block`}>
+          <div className={`${mobileMenuOpen ? 'block' : 'hidden'} md:block shrink-0 h-auto md:h-full`}>
             <Sidebar
               currentView={currentView}
               onViewChange={(view) => {
@@ -175,10 +175,13 @@ export default function App() {
         )}
 
         {/* Content Box */}
-        <main className={isWorkspaceView 
-          ? "flex-1 w-full h-screen overflow-hidden flex flex-col p-4 md:p-6 bg-[#F5F7FA]" 
-          : "flex-1 p-4 sm:p-6 md:p-8 max-w-7xl mx-auto w-full overflow-y-auto"
-        }>
+        <main 
+          className={isWorkspaceView 
+            ? "flex-1 w-full h-screen overflow-hidden flex flex-col p-4 md:p-6 bg-[#F5F7FA]" 
+            : "flex-1 p-4 sm:p-6 md:p-8 max-w-7xl mx-auto w-full overflow-y-auto min-h-0 h-full"
+          }
+          style={!isWorkspaceView ? { paddingRight: '30px' } : undefined}
+        >
           {renderActiveView()}
         </main>
       </div>
