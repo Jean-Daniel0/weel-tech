@@ -498,7 +498,7 @@ export default function SettingsView({ userProfile, onProfileUpdate }: SettingsV
                 </div>
                 <div>
                   <div className="flex items-baseline gap-1">
-                    <span className="text-2xl font-extrabold text-brand-dark">19 €</span>
+                    <span className="text-2xl font-extrabold text-brand-dark">19 $</span>
                     <span className="text-5xs text-slate-400 font-medium">/ mois</span>
                   </div>
                   <p className="text-5xs text-slate-400 mt-1">Idéal pour démarrer votre premier site vitrine autonome.</p>

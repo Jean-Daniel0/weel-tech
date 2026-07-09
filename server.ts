@@ -475,12 +475,13 @@ app.post('/api/stripe-webhook', async (req, res) => {
       paymentData = {
         stripe_id: mockObj.id || 'sim-' + Math.random().toString(36).substring(2, 9),
         amount: mockObj.amount || 99,
-        currency: (mockObj.currency || 'EUR').toUpperCase(),
+        currency: (mockObj.currency || 'USD').toUpperCase(),
         customer_name: mockObj.customer_name || 'Simulated Customer',
         customer_email: mockObj.customer_email || 'sim@example.com',
         description: mockObj.description || 'Paiement simulé Connect',
         user_id: mockObj.user_id || 'demo-user-123',
-        plan: mockObj.plan || 'starter'
+        plan: mockObj.plan || 'starter',
+        is_sandbox: mockObj.is_sandbox !== undefined ? mockObj.is_sandbox : true
       };
     }
 
@@ -504,7 +505,8 @@ app.post('/api/stripe-webhook', async (req, res) => {
         method: 'Stripe',
         created_at: new Date().toISOString(),
         application_fee_amount: applicationFeeAmount,
-        net_amount: netAmount
+        net_amount: netAmount,
+        is_sandbox: paymentData.is_sandbox !== undefined ? paymentData.is_sandbox : false
       };
 
       // 1. Save to real Supabase if connected
@@ -648,7 +650,7 @@ app.post('/api/payment-configs', (req, res) => {
  * 4. Records the transaction inside "transactions" table with the status returned by Bazik
  */
 app.post('/api/moncash-payout', async (req, res) => {
-  const { amount, siteId, customerName, customerEmail, currency = 'HTG' } = req.body;
+  const { amount, siteId, customerName, customerEmail, currency = 'HTG', is_sandbox } = req.body;
 
   if (!amount || !siteId) {
     return res.status(400).json({ error: "Paramètres 'amount' et 'siteId' sont requis." });
@@ -764,7 +766,8 @@ app.post('/api/moncash-payout', async (req, res) => {
     method: 'MonCash',
     created_at: new Date().toISOString(),
     application_fee_amount: commissionAmount,
-    net_amount: transferAmount
+    net_amount: transferAmount,
+    is_sandbox: is_sandbox !== undefined ? is_sandbox : false
   };
 
   // Save to real Supabase if connected
@@ -891,7 +894,7 @@ app.post('/api/edge/search-domain', async (req, res) => {
         available: isAvailable,
         basePrice: parseFloat(basePrice.toFixed(2)),
         finalPrice: parseFloat(finalPrice.toFixed(2)),
-        currency: "EUR",
+        currency: "USD",
         planUsed: plan || "Aucun abonnement (marge pleine)",
         isSimulated
       };
@@ -1596,7 +1599,8 @@ app.get('/stripe-billing-simulation', (req, res) => {
  * payouts for MonCash if needed.
  */
 app.post('/api/widget/pay', async (req, res) => {
-  const { apiKey, siteId, amount, currency = 'EUR', customerName, customerEmail, description, method = 'Stripe' } = req.body;
+  const { apiKey, siteId, amount, currency, customerName, customerEmail, description, method = 'Stripe' } = req.body;
+  let txCurrency = currency || (method === 'MonCash' ? 'HTG' : 'USD');
 
   if (!apiKey) {
     return res.status(400).json({ error: "Clé API manquante. Veuillez fournir 'apiKey'." });
@@ -1694,7 +1698,7 @@ app.post('/api/widget/pay', async (req, res) => {
           },
           body: JSON.stringify({
             amount: netAmount,
-            currency: currency,
+            currency: txCurrency,
             receiver: moncashPhone,
             channel: 'moncash',
             description: `Payout MonCash widget pour ${siteId || 'site-1'} - Réf: ${customerEmail || 'N/A'}`
@@ -1737,7 +1741,7 @@ app.post('/api/widget/pay', async (req, res) => {
     user_id: userId,
     site_id: siteId || 'site-1',
     amount: numericAmount,
-    currency: currency,
+    currency: txCurrency,
     customer_name: customerName || 'Client Widget',
     customer_email: customerEmail || 'client@widget.com',
     status: finalStatus as any,
@@ -1745,7 +1749,8 @@ app.post('/api/widget/pay', async (req, res) => {
     method: method,
     created_at: new Date().toISOString(),
     application_fee_amount: applicationFeeAmount,
-    net_amount: netAmount
+    net_amount: netAmount,
+    is_sandbox: apiKey.startsWith('vp_test_')
   };
 
   // Save to real database if connected

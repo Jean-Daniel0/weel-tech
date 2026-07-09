@@ -7,6 +7,7 @@ export interface UserProfile {
   company_name?: string;
   plan: UserPlan;
   created_at: string;
+  sandbox_mode?: boolean;
 }
 
 export interface Site {
@@ -33,6 +34,7 @@ export interface PaymentTransaction {
   method?: string; // payment method (Stripe, MonCash, API, etc.)
   application_fee_amount?: number;
   net_amount?: number;
+  is_sandbox?: boolean;
 }
 
 export interface ApiKey {

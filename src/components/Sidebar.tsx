@@ -1,5 +1,5 @@
 import { SidebarView } from '../types';
-import { Globe, CreditCard, Link2, Settings, ChevronRight, Sparkles } from 'lucide-react';
+import { Globe, CreditCard, Link2, Settings, ChevronRight, Sparkles, LayoutDashboard } from 'lucide-react';
 
 interface SidebarProps {
   currentView: SidebarView;
@@ -8,6 +8,12 @@ interface SidebarProps {
 
 export default function Sidebar({ currentView, onViewChange }: SidebarProps) {
   const menuItems = [
+    {
+      id: 'dashboard' as SidebarView,
+      label: 'Tableau de bord',
+      icon: LayoutDashboard,
+      description: 'Vue d\'ensemble'
+    },
     {
       id: 'sites' as SidebarView,
       label: 'Mes sites',

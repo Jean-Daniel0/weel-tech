@@ -51,10 +51,30 @@ export default function PayView({ userProfile }: PayViewProps) {
     return localStorage.getItem('weel_tech_standalone_mode') !== 'false'; // defaults to true
   });
 
+  // Active sub-tab state for Vendza:Pay (Hub vs API Docs)
+  const [activePayTab, setActivePayTab] = useState<'hub' | 'docs'>('hub');
+
+  // Custom Currency Formatter
+  const formatCurrency = (amount: number, currency: string = 'USD') => {
+    const cur = currency.toUpperCase();
+    if (cur === 'HTG') {
+      const rounded = Math.round(amount);
+      const formatted = rounded.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+      return `${formatted} G`;
+    } else {
+      return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
+    }
+  };
+
   // Transferred balance state (persisted locally)
-  const [transferredAmount, setTransferredAmount] = useState<number>(() => {
-    const val = localStorage.getItem('weel_tech_transferred_amount');
+  const [transferredAmountUSD, setTransferredAmountUSD] = useState<number>(() => {
+    const val = localStorage.getItem('weel_tech_transferred_amount_usd');
     return val ? parseFloat(val) : 150.00;
+  });
+
+  const [transferredAmountHTG, setTransferredAmountHTG] = useState<number>(() => {
+    const val = localStorage.getItem('weel_tech_transferred_amount_htg');
+    return val ? parseFloat(val) : 0.00;
   });
 
   // Swept transaction IDs state (persisted locally to compute pending transfers)
@@ -86,7 +106,7 @@ export default function PayView({ userProfile }: PayViewProps) {
   // Live Widget Configuration state
   const [widgetApiKey, setWidgetApiKey] = useState<string>('');
   const [widgetAmount, setWidgetAmount] = useState<string>('49.00');
-  const [widgetCurrency, setWidgetCurrency] = useState<string>('EUR');
+  const [widgetCurrency, setWidgetCurrency] = useState<string>('USD');
   const [widgetSiteId, setWidgetSiteId] = useState<string>('site-1');
   const [widgetDesc, setWidgetDesc] = useState<string>('Abonnement Premium');
   const [widgetCustName, setWidgetCustName] = useState<string>('Marie Dupont');
@@ -305,26 +325,38 @@ export default function PayView({ userProfile }: PayViewProps) {
 
   // Trigger Payout sweep
   const handleSweepToBank = () => {
-    const unsweptSucceededTxs = transactions.filter(
+    const isSandbox = userProfile?.sandbox_mode || false;
+    const activeTxs = transactions.filter(t => isSandbox ? t.is_sandbox : !t.is_sandbox);
+
+    const unsweptSucceededTxs = activeTxs.filter(
       t => t.status === 'succeeded' && !sweptTxIds.includes(t.id)
     );
-    const amountToTransfer = unsweptSucceededTxs.reduce((sum, t) => sum + t.amount, 0);
 
-    if (amountToTransfer <= 0) {
+    const usdToTransfer = unsweptSucceededTxs.filter(t => t.currency.toUpperCase() === 'USD').reduce((sum, t) => sum + t.amount, 0);
+    const htgToTransfer = unsweptSucceededTxs.filter(t => t.currency.toUpperCase() === 'HTG').reduce((sum, t) => sum + t.amount, 0);
+
+    if (usdToTransfer <= 0 && htgToTransfer <= 0) {
       showNotification("Aucun nouveau fonds n'est disponible pour un virement bancaire.", true);
       return;
     }
 
     const newSweptIds = [...sweptTxIds, ...unsweptSucceededTxs.map(t => t.id)];
-    const newTransferredTotal = transferredAmount + amountToTransfer;
+    const nextTransferredUSD = transferredAmountUSD + usdToTransfer;
+    const nextTransferredHTG = transferredAmountHTG + htgToTransfer;
 
     setSweptTxIds(newSweptIds);
-    setTransferredAmount(newTransferredTotal);
+    setTransferredAmountUSD(nextTransferredUSD);
+    setTransferredAmountHTG(nextTransferredHTG);
 
     localStorage.setItem('weel_tech_swept_tx_ids', JSON.stringify(newSweptIds));
-    localStorage.setItem('weel_tech_transferred_amount', String(newTransferredTotal));
+    localStorage.setItem('weel_tech_transferred_amount_usd', String(nextTransferredUSD));
+    localStorage.setItem('weel_tech_transferred_amount_htg', String(nextTransferredHTG));
 
-    showNotification(`Virement initié ! Un montant de ${amountToTransfer.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })} a été transféré vers votre compte bancaire.`);
+    const msgParts: string[] = [];
+    if (usdToTransfer > 0) msgParts.push(formatCurrency(usdToTransfer, 'USD'));
+    if (htgToTransfer > 0) msgParts.push(formatCurrency(htgToTransfer, 'HTG'));
+
+    showNotification(`Virement initié ! Un montant de ${msgParts.join(' et ')} a été transféré vers votre compte bancaire.`);
   };
 
   // Create mock API Key
@@ -334,7 +366,7 @@ export default function PayView({ userProfile }: PayViewProps) {
     setCreatingKey(true);
 
     try {
-      const prefix = 'vp_live_';
+      const prefix = userProfile?.sandbox_mode ? 'vp_test_' : 'vp_live_';
       const randomHex = Array.from({ length: 24 }, () => 
         Math.floor(Math.random() * 16).toString(16)
       ).join('');
@@ -391,6 +423,7 @@ export default function PayView({ userProfile }: PayViewProps) {
     setCreating(true);
 
     try {
+      const isSandbox = userProfile?.sandbox_mode || false;
       if (method === 'Stripe' && status === 'succeeded') {
         // Trigger the Stripe Webhook so it computes commission, saves on database/JSON and triggers logs
         const webhookResponse = await fetch('/api/stripe-webhook', {
@@ -400,12 +433,13 @@ export default function PayView({ userProfile }: PayViewProps) {
             type: 'simulated.payment',
             data: {
               amount: parseFloat(amount),
-              currency: 'EUR',
+              currency: 'USD',
               customer_name: customerName.trim(),
               customer_email: customerEmail.trim().toLowerCase(),
               description: description.trim() || 'Achat de service Connect',
               user_id: userProfile.id,
-              plan: userProfile.plan || 'starter'
+              plan: userProfile.plan || 'starter',
+              is_sandbox: isSandbox
             }
           })
         });
@@ -416,7 +450,7 @@ export default function PayView({ userProfile }: PayViewProps) {
 
         const webhookResult = await webhookResponse.json();
         console.log("Stripe Webhook response processed:", webhookResult);
-        showNotification(`Paiement traité par Stripe Webhook ! Commission calculée : ${(webhookResult.transaction?.application_fee_amount || 0).toFixed(2)}€`);
+        showNotification(`Paiement traité par Stripe Webhook ! Commission calculée : ${formatCurrency(webhookResult.transaction?.application_fee_amount || 0, 'USD')}`);
       } else if (method === 'MonCash') {
         // Trigger the /api/moncash-payout endpoint to calculate payout & invoke Bazik (or simulated Bazik)
         const moncashResponse = await fetch('/api/moncash-payout', {
@@ -427,7 +461,8 @@ export default function PayView({ userProfile }: PayViewProps) {
             siteId: selectedSiteId || 'site-1',
             customerName: customerName.trim(),
             customerEmail: customerEmail.trim().toLowerCase(),
-            currency: 'EUR'
+            currency: 'HTG',
+            is_sandbox: isSandbox
           })
         });
 
@@ -441,22 +476,24 @@ export default function PayView({ userProfile }: PayViewProps) {
         
         if (moncashResult.success) {
           showNotification(
-            `Transfert MonCash réussi vers ${moncashResult.receiver} ! Montant transféré : ${moncashResult.transferAmount.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })} (commission 10% prélevée)`
+            `Transfert MonCash réussi vers ${moncashResult.receiver} ! Montant transféré : ${formatCurrency(moncashResult.transferAmount, 'HTG')} (commission 10% prélevée)`
           );
         } else {
           throw new Error("Le transfert a été refusé par l'API de transfert.");
         }
       } else {
         // Fallback for regular or other payment simulations
+        const txCurrency = method === 'MonCash' ? 'HTG' : 'USD';
         const newTx = {
           user_id: userProfile.id,
           amount: parseFloat(amount),
-          currency: 'EUR',
+          currency: txCurrency,
           customer_name: customerName.trim(),
           customer_email: customerEmail.trim().toLowerCase(),
           status,
           description: description.trim() || 'Paiement de service',
           method: method || 'Stripe',
+          is_sandbox: isSandbox
         };
 
         const { error } = await supabase
@@ -489,24 +526,47 @@ export default function PayView({ userProfile }: PayViewProps) {
   const currentMonth = now.getMonth();
   const currentYear = now.getFullYear();
 
-  const totalEncaisseCeMois = transactions
+  // Filter transactions by sandbox mode
+  const isSandbox = userProfile?.sandbox_mode || false;
+  const activeTxs = transactions.filter(t => isSandbox ? t.is_sandbox : !t.is_sandbox);
+
+  const totalUSDEncaissedCeMois = activeTxs
     .filter(t => {
       if (t.status !== 'succeeded') return false;
+      if (t.currency.toUpperCase() !== 'USD') return false;
+      const d = new Date(t.created_at);
+      return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+    })
+    .reduce((sum, t) => sum + t.amount, 0);
+
+  const totalHTGEncaissedCeMois = activeTxs
+    .filter(t => {
+      if (t.status !== 'succeeded') return false;
+      if (t.currency.toUpperCase() !== 'HTG') return false;
       const d = new Date(t.created_at);
       return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
     })
     .reduce((sum, t) => sum + t.amount, 0);
 
   // 2. Montant en attente (Sum of pending transactions + succeeded transactions not yet swept)
-  const pendingTotal = transactions
-    .filter(t => t.status === 'pending')
+  const pendingTotalUSD = activeTxs
+    .filter(t => t.status === 'pending' && t.currency.toUpperCase() === 'USD')
     .reduce((sum, t) => sum + t.amount, 0);
 
-  const unsweptSucceededAmount = transactions
-    .filter(t => t.status === 'succeeded' && !sweptTxIds.includes(t.id))
+  const pendingTotalHTG = activeTxs
+    .filter(t => t.status === 'pending' && t.currency.toUpperCase() === 'HTG')
     .reduce((sum, t) => sum + t.amount, 0);
 
-  const montantEnAttente = pendingTotal + unsweptSucceededAmount;
+  const unsweptSucceededAmountUSD = activeTxs
+    .filter(t => t.status === 'succeeded' && t.currency.toUpperCase() === 'USD' && !sweptTxIds.includes(t.id))
+    .reduce((sum, t) => sum + t.amount, 0);
+
+  const unsweptSucceededAmountHTG = activeTxs
+    .filter(t => t.status === 'succeeded' && t.currency.toUpperCase() === 'HTG' && !sweptTxIds.includes(t.id))
+    .reduce((sum, t) => sum + t.amount, 0);
+
+  const montantEnAttenteUSD = pendingTotalUSD + unsweptSucceededAmountUSD;
+  const montantEnAttenteHTG = pendingTotalHTG + unsweptSucceededAmountHTG;
 
   // Filter & Search logic for transactions
   const filteredTransactions = transactions.filter(t => {
@@ -550,93 +610,348 @@ export default function PayView({ userProfile }: PayViewProps) {
         </div>
       </div>
 
-      {/* NOTIFICATIONS CONTAINER */}
-      <AnimatePresence>
-        {errorMessage && (
-          <motion.div 
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className="p-3.5 bg-red-50 border border-red-100 text-red-700 rounded-xl text-xs sm:text-sm flex items-center gap-2"
-          >
-            <XCircle className="w-4 h-4 shrink-0 text-red-500" />
-            <span>{errorMessage}</span>
-          </motion.div>
-        )}
-        {successMessage && (
-          <motion.div 
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className="p-3.5 bg-emerald-50 border border-emerald-100 text-emerald-700 rounded-xl text-xs sm:text-sm flex items-center gap-2"
-          >
-            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-500" />
-            <span>{successMessage}</span>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* SECTION SOLDE & TRANSFER */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* TOTAL ENCAISSÉ CE MOIS */}
-        <div className="main-card p-5 relative overflow-hidden flex flex-col justify-between min-h-[120px]">
-          <div className="absolute right-4 top-4 text-emerald-600 bg-emerald-50 p-2 rounded-xl">
-            <DollarSign className="w-5 h-5" />
-          </div>
-          <div>
-            <p className="text-3xs font-semibold text-slate-400 uppercase tracking-widest">Encaissé ce mois</p>
-            <p className="text-2xl sm:text-3xl font-display font-bold text-brand-dark mt-1">
-              {totalEncaisseCeMois.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
-            </p>
-          </div>
-          <p className="text-4xs text-emerald-600 mt-2 font-medium flex items-center gap-1">
-            <Check className="w-3 h-3" />
-            Revenu net encaissé sur la période en cours
-          </p>
-        </div>
-
-        {/* MONTANT TRANSFÉRÉ */}
-        <div className="main-card p-5 relative overflow-hidden flex flex-col justify-between min-h-[120px]">
-          <div className="absolute right-4 top-4 text-brand-blue bg-blue-50 p-2 rounded-xl">
-            <ArrowRightLeft className="w-5 h-5" />
-          </div>
-          <div>
-            <p className="text-3xs font-semibold text-slate-400 uppercase tracking-widest">Montant transféré</p>
-            <p className="text-2xl sm:text-3xl font-display font-bold text-slate-700 mt-1">
-              {transferredAmount.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
-            </p>
-          </div>
-          <p className="text-4xs text-slate-400 mt-2">
-            Fonds envoyés vers votre compte bancaire principal
-          </p>
-        </div>
-
-        {/* MONTANT EN ATTENTE + TRANSFER BUTTON */}
-        <div className="main-card p-5 relative overflow-hidden flex flex-col justify-between min-h-[120px] border-l-4 border-l-amber-400">
-          <div className="absolute right-4 top-4 text-amber-600 bg-amber-50 p-2 rounded-xl">
-            <Clock className="w-5 h-5" />
-          </div>
-          <div>
-            <p className="text-3xs font-semibold text-slate-400 uppercase tracking-widest">Montant en attente</p>
-            <p className="text-2xl sm:text-3xl font-display font-bold text-amber-600 mt-1">
-              {montantEnAttente.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
-            </p>
-          </div>
-          <div className="mt-2.5 flex items-center justify-between gap-2">
-            <p className="text-4xs text-slate-400">
-              Prêt pour virement bancaire
-            </p>
-            {unsweptSucceededAmount > 0 && (
-              <button
-                onClick={handleSweepToBank}
-                className="px-2 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-5xs font-bold uppercase tracking-wider transition shadow-sm cursor-pointer"
-              >
-                Transférer vers banque
-              </button>
-            )}
-          </div>
-        </div>
+      {/* TABS SELECTOR */}
+      <div className="flex border-b border-slate-200">
+        <button
+          onClick={() => setActivePayTab('hub')}
+          className={`px-4 py-2 text-xs font-bold tracking-tight border-b-2 transition-all cursor-pointer ${
+            activePayTab === 'hub' 
+              ? 'border-brand-blue text-brand-blue font-semibold font-display' 
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          Hub Financier &amp; Transactions
+        </button>
+        <button
+          onClick={() => setActivePayTab('docs')}
+          className={`px-4 py-2 text-xs font-bold tracking-tight border-b-2 transition-all cursor-pointer ${
+            activePayTab === 'docs' 
+              ? 'border-brand-blue text-brand-blue font-semibold font-display' 
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          Documentation API (Widget &amp; Webhook)
+        </button>
       </div>
+
+      {activePayTab === 'docs' ? (
+        <div className="main-card p-6 bg-white rounded-2xl border border-slate-100">
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            {/* Sommaire */}
+            <div className="lg:col-span-1 space-y-2 border-r border-slate-100 pr-4">
+              <h3 className="text-3xs font-bold text-slate-400 uppercase tracking-widest px-3 mb-2">Sommaire</h3>
+              {[
+                { id: 'intro', label: 'Présentation' },
+                { id: 'auth', label: 'Authentification' },
+                { id: 'keys', label: 'Format des Clés API' },
+                { id: 'widget', label: 'Widget No-Code' },
+                { id: 'api', label: 'API /api/widget/pay' },
+                { id: 'fees', label: 'Frais & Transferts' },
+              ].map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    const el = document.getElementById(`doc-sec-${item.id}`);
+                    if (el) el.scrollIntoView({ behavior: 'smooth' });
+                  }}
+                  className="w-full text-left px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition flex items-center gap-2 cursor-pointer"
+                >
+                  <div className="w-1 h-1 rounded-full bg-slate-400" />
+                  {item.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Corps */}
+            <div className="lg:col-span-3 space-y-8 max-h-[75vh] overflow-y-auto pr-2 custom-scrollbar">
+              {/* 1. Présentation */}
+              <section id="doc-sec-intro" className="space-y-2 scroll-mt-6">
+                <h2 className="text-xs sm:text-sm font-bold text-brand-dark font-display flex items-center gap-2 border-b border-slate-100 pb-1.5">
+                  <span className="w-5 h-5 rounded bg-brand-blue/10 text-brand-blue flex items-center justify-center font-bold text-[10px]">1</span>
+                  Présentation de Vendza:Pay
+                </h2>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Vendza:Pay est l'infrastructure financière unifiée de Weel-Tech, conçue spécifiquement pour les créateurs, entreprises et développeurs en Haïti et à l'international. Elle unifie les paiements par <strong>Carte Bancaire (Stripe)</strong> en dollars américains (USD) et par <strong>MonCash (via Bazik)</strong> en gourdes haïtiennes (HTG) sous une seule clé d'API, éliminant ainsi toute complexité d'intégration.
+                </p>
+              </section>
+
+              {/* 2. Authentification */}
+              <section id="doc-sec-auth" className="space-y-2 scroll-mt-6">
+                <h2 className="text-xs sm:text-sm font-bold text-brand-dark font-display flex items-center gap-2 border-b border-slate-100 pb-1.5">
+                  <span className="w-5 h-5 rounded bg-brand-blue/10 text-brand-blue flex items-center justify-center font-bold text-[10px]">2</span>
+                  Authentification par Clé Secrète
+                </h2>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Toutes les requêtes adressées à l'API de Vendza:Pay doivent être authentifiées à l'aide de votre clé secrète. Vous pouvez inclure cette clé dans vos requêtes sous deux formes équivalentes :
+                </p>
+                <div className="space-y-2">
+                  <p className="text-5xs font-bold text-slate-500 uppercase tracking-wider">Option A : En-tête HTTP Standard (Recommandé)</p>
+                  <pre className="bg-slate-950 text-emerald-400 p-3 rounded-xl text-5xs font-mono overflow-x-auto border border-slate-900">
+                    {`Authorization: Bearer vp_live_xxxxxxxxxxxxxxxxxxxxxxxx`}
+                  </pre>
+                  <p className="text-5xs font-bold text-slate-500 uppercase tracking-wider mt-2">Option B : Paramètre URL Query String (Widgets clients)</p>
+                  <pre className="bg-slate-950 text-emerald-400 p-3 rounded-xl text-5xs font-mono overflow-x-auto border border-slate-900">
+                    {`https://weel-tech.app/api/widget/pay?api_key=vp_live_xxxxxxxxxxxxxxxxxxxxxx`}
+                  </pre>
+                </div>
+              </section>
+
+              {/* 3. Format des clés */}
+              <section id="doc-sec-keys" className="space-y-2 scroll-mt-6">
+                <h2 className="text-xs sm:text-sm font-bold text-brand-dark font-display flex items-center gap-2 border-b border-slate-100 pb-1.5">
+                  <span className="w-5 h-5 rounded bg-brand-blue/10 text-brand-blue flex items-center justify-center font-bold text-[10px]">3</span>
+                  Format des Clés API (Production vs Test)
+                </h2>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Vendza:Pay utilise un préfixe de clé distinct pour séparer les environnements d'exécution :
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="p-3 bg-amber-50/50 border border-amber-100 rounded-xl space-y-1">
+                    <span className="inline-flex px-1.5 py-0.5 rounded bg-amber-500 text-white font-mono text-5xs font-bold">vp_test_</span>
+                    <h4 className="text-2xs font-bold text-slate-800">Mode Bac à Sable (Sandbox)</h4>
+                    <p className="text-5xs text-slate-500 leading-relaxed">
+                      Utilisé pour les tests d'intégration. Aucune transaction réelle n'est effectuée sur les réseaux Stripe ou MonCash. Les webhooks simulent des réussites ou échecs instantanés.
+                    </p>
+                  </div>
+                  <div className="p-3 bg-indigo-50/50 border border-indigo-100 rounded-xl space-y-1">
+                    <span className="inline-flex px-1.5 py-0.5 rounded bg-brand-blue text-white font-mono text-5xs font-bold">vp_live_</span>
+                    <h4 className="text-2xs font-bold text-slate-800">Mode Production (Live)</h4>
+                    <p className="text-5xs text-slate-500 leading-relaxed">
+                      Utilisé pour les ventes réelles. Les paiements par carte débitent réellement les clients en USD ($) et les virements MonCash initient de vrais transferts de gourdes (HTG).
+                    </p>
+                  </div>
+                </div>
+              </section>
+
+              {/* 4. Widget No-Code */}
+              <section id="doc-sec-widget" className="space-y-2 scroll-mt-6">
+                <h2 className="text-xs sm:text-sm font-bold text-brand-dark font-display flex items-center gap-2 border-b border-slate-100 pb-1.5">
+                  <span className="w-5 h-5 rounded bg-brand-blue/10 text-brand-blue flex items-center justify-center font-bold text-[10px]">4</span>
+                  Widget Bouton de Paiement No-Code
+                </h2>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Le moyen le plus simple d'intégrer des paiements sur votre site est notre widget No-Code. Copiez le script d'initialisation dans votre <code className="bg-slate-100 px-1 py-0.5 rounded font-mono text-5xs text-slate-800">&lt;head&gt;</code>, puis placez la balise <code className="bg-slate-100 px-1 py-0.5 rounded font-mono text-5xs text-slate-800">&lt;div&gt;</code> configurée avec vos attributs de produit.
+                </p>
+                <div className="space-y-2 bg-slate-50 p-4 rounded-xl border border-slate-100">
+                  <p className="text-5xs font-bold text-slate-500 uppercase tracking-wider">Code à inclure :</p>
+                  <pre className="bg-slate-950 text-slate-300 p-3 rounded-xl text-5xs font-mono overflow-x-auto leading-relaxed border border-slate-900">
+{`<!-- Étape 1 : Le Script -->
+<script src="\${window.location.origin}/vendza-pay-widget.js"></script>
+
+<!-- Étape 2 : Le Bouton de Paiement -->
+<div id="vendza-pay-button"
+  data-api-key="vp_live_xxxxxxxxxxxxxxxxxxxxxxxx"
+  data-site-id="site-123"
+  data-amount="25.00"
+  data-currency="USD"
+  data-description="Abonnement de Services"
+  data-customer-name="Nom du client"
+  data-customer-email="email@client.com"
+></div>`}
+                  </pre>
+                </div>
+              </section>
+
+              {/* 5. API POST /api/widget/pay */}
+              <section id="doc-sec-api" className="space-y-2 scroll-mt-6">
+                <h2 className="text-xs sm:text-sm font-bold text-brand-dark font-display flex items-center gap-2 border-b border-slate-100 pb-1.5">
+                  <span className="w-5 h-5 rounded bg-brand-blue/10 text-brand-blue flex items-center justify-center font-bold text-[10px]">5</span>
+                  API d'Initiation de Paiement (POST /api/widget/pay)
+                </h2>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Pour des flux personnalisés où vous souhaitez générer des sessions de paiement directement depuis votre serveur backend, envoyez une requête HTTP POST à l'URL suivante :
+                </p>
+                <div className="space-y-3">
+                  <p className="text-5xs font-bold text-indigo-600 uppercase tracking-wider">Requête POST</p>
+                  <pre className="bg-slate-950 text-slate-200 p-3 rounded-xl text-5xs font-mono overflow-x-auto border border-slate-900">
+                    {`POST \${window.location.origin}/api/widget/pay`}
+                  </pre>
+                  
+                  <p className="text-5xs font-bold text-slate-500 uppercase tracking-wider">Payload JSON requis :</p>
+                  <pre className="bg-slate-950 text-emerald-400 p-3 rounded-xl text-5xs font-mono overflow-x-auto border border-slate-900 leading-relaxed">
+{`{
+  "api_key": "vp_live_xxxxxxxxxxxxxxxxxxxxxxxx",
+  "site_id": "votre-site-id",
+  "amount": 1500,       // Montant en unités entières (ex: 1500 USD ou 1500 HTG)
+  "currency": "USD",    // "USD" pour Stripe ou "HTG" pour MonCash
+  "description": "Panier d'achat #9821",
+  "customer_name": "Jean-Pierre",
+  "customer_email": "jean.pierre@email.com"
+}`}
+                  </pre>
+
+                  <p className="text-5xs font-bold text-slate-500 uppercase tracking-wider">Exemple d'Intégration Node.js :</p>
+                  <pre className="bg-slate-950 text-indigo-300 p-3 rounded-xl text-5xs font-mono overflow-x-auto border border-slate-900 leading-relaxed">
+{`const payResponse = await fetch("\${window.location.origin}/api/widget/pay", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    api_key: "vp_live_xxxxxxxxxxxxxx",
+    site_id: "site-123",
+    amount: 1500,
+    currency: "USD",
+    description: "Premium Plan",
+    customer_name: "Alice",
+    customer_email: "alice@example.com"
+  })
+});
+const session = await payResponse.json();
+if (session.success) {
+  // Rediriger le client vers l'URL de paiement reçue
+  window.location.href = session.payment_url;
+}`}
+                  </pre>
+                </div>
+              </section>
+
+              {/* 6. Commissions et transferts */}
+              <section id="doc-sec-fees" className="space-y-2 scroll-mt-6">
+                <h2 className="text-xs sm:text-sm font-bold text-brand-dark font-display flex items-center gap-2 border-b border-slate-100 pb-1.5">
+                  <span className="w-5 h-5 rounded bg-brand-blue/10 text-brand-blue flex items-center justify-center font-bold text-[10px]">6</span>
+                  Modèle de Commissions &amp; Virements (Sweeps)
+                </h2>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Conformément aux conditions d'utilisation de Weel-Tech, des commissions transparentes sont prélevées sur chaque transaction réussie selon votre forfait actif :
+                </p>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-slate-100 text-[10px]">
+                    <thead className="bg-slate-50">
+                      <tr>
+                        <th className="px-2 py-1.5 text-left font-bold text-slate-500">Forfait Actif</th>
+                        <th className="px-2 py-1.5 text-left font-bold text-slate-500">Commission</th>
+                        <th className="px-2 py-1.5 text-left font-bold text-slate-500">Mode de Transfert (Sweeps)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50 bg-white text-slate-600">
+                      <tr>
+                        <td className="px-2 py-1.5 font-bold text-amber-600">Starter (Gratuit)</td>
+                        <td className="px-2 py-1.5">12 % par transaction</td>
+                        <td className="px-2 py-1.5">Manuel via le bouton "Transférer vers banque"</td>
+                      </tr>
+                      <tr>
+                        <td className="px-2 py-1.5 font-bold text-brand-blue">Pro (Abonnement)</td>
+                        <td className="px-2 py-1.5">10 % par transaction</td>
+                        <td className="px-2 py-1.5">Manuel ou automatique tous les vendredis</td>
+                      </tr>
+                      <tr>
+                        <td className="px-2 py-1.5 font-bold text-emerald-600">Business (Entreprise)</td>
+                        <td className="px-2 py-1.5">5 % par transaction</td>
+                        <td className="px-2 py-1.5">Automatique sous 24h ouvrées</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <p className="text-5xs text-slate-400 leading-relaxed mt-2">
+                  Les montants nets reçus en Dollars (USD) sont cumulés séparément de ceux reçus en Gourdes (HTG). Le déclenchement du virement bancaire vire vos montants cumulés correspondants vers vos comptes configurés.
+                </p>
+              </section>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* NOTIFICATIONS CONTAINER */}
+          <AnimatePresence>
+            {errorMessage && (
+              <motion.div 
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="p-3.5 bg-red-50 border border-red-100 text-red-700 rounded-xl text-xs sm:text-sm flex items-center gap-2"
+              >
+                <XCircle className="w-4 h-4 shrink-0 text-red-500" />
+                <span>{errorMessage}</span>
+              </motion.div>
+            )}
+            {successMessage && (
+              <motion.div 
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="p-3.5 bg-emerald-50 border border-emerald-100 text-emerald-700 rounded-xl text-xs sm:text-sm flex items-center gap-2"
+              >
+                <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-500" />
+                <span>{successMessage}</span>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* SECTION SOLDE & TRANSFER */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* TOTAL ENCAISSÉ CE MOIS */}
+            <div className="main-card p-5 relative overflow-hidden flex flex-col justify-between min-h-[120px]">
+              <div className="absolute right-4 top-4 text-emerald-600 bg-emerald-50 p-2 rounded-xl">
+                <DollarSign className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-3xs font-semibold text-slate-400 uppercase tracking-widest">Encaissé ce mois</p>
+                <div className="mt-1 space-y-1">
+                  <p className="text-sm font-semibold text-brand-dark">
+                    Stripe (USD) : <span className="font-display font-bold text-base">{formatCurrency(totalUSDEncaissedCeMois, 'USD')}</span>
+                  </p>
+                  <p className="text-sm font-semibold text-emerald-700">
+                    MonCash (HTG) : <span className="font-display font-bold text-base">{formatCurrency(totalHTGEncaissedCeMois, 'HTG')}</span>
+                  </p>
+                </div>
+              </div>
+              <p className="text-4xs text-emerald-600 mt-2 font-medium flex items-center gap-1">
+                <Check className="w-3 h-3" />
+                Revenu net encaissé sur la période en cours
+              </p>
+            </div>
+
+            {/* MONTANT TRANSFÉRÉ */}
+            <div className="main-card p-5 relative overflow-hidden flex flex-col justify-between min-h-[120px]">
+              <div className="absolute right-4 top-4 text-brand-blue bg-blue-50 p-2 rounded-xl">
+                <ArrowRightLeft className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-3xs font-semibold text-slate-400 uppercase tracking-widest">Montant transféré</p>
+                <div className="mt-1 space-y-1">
+                  <p className="text-sm font-semibold text-slate-700">
+                    Stripe (USD) : <span className="font-display font-bold text-base">{formatCurrency(transferredAmountUSD, 'USD')}</span>
+                  </p>
+                  <p className="text-sm font-semibold text-slate-600">
+                    MonCash (HTG) : <span className="font-display font-bold text-base">{formatCurrency(transferredAmountHTG, 'HTG')}</span>
+                  </p>
+                </div>
+              </div>
+              <p className="text-4xs text-slate-400 mt-2">
+                Fonds envoyés vers votre compte bancaire principal
+              </p>
+            </div>
+
+            {/* MONTANT EN ATTENTE + TRANSFER BUTTON */}
+            <div className="main-card p-5 relative overflow-hidden flex flex-col justify-between min-h-[120px] border-l-4 border-l-amber-400">
+              <div className="absolute right-4 top-4 text-amber-600 bg-amber-50 p-2 rounded-xl">
+                <Clock className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-3xs font-semibold text-slate-400 uppercase tracking-widest">Montant en attente</p>
+                <div className="mt-1 space-y-1">
+                  <p className="text-sm font-semibold text-amber-600">
+                    Stripe (USD) : <span className="font-display font-bold text-base">{formatCurrency(montantEnAttenteUSD, 'USD')}</span>
+                  </p>
+                  <p className="text-sm font-semibold text-amber-700">
+                    MonCash (HTG) : <span className="font-display font-bold text-base">{formatCurrency(montantEnAttenteHTG, 'HTG')}</span>
+                  </p>
+                </div>
+              </div>
+              <div className="mt-2.5 flex items-center justify-between gap-2">
+                <p className="text-4xs text-slate-400">
+                  Prêt pour virement bancaire
+                </p>
+                {(unsweptSucceededAmountUSD > 0 || unsweptSucceededAmountHTG > 0) && (
+                  <button
+                    onClick={handleSweepToBank}
+                    className="px-2 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-5xs font-bold uppercase tracking-wider transition shadow-sm cursor-pointer"
+                  >
+                    Transférer vers banque
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
 
       {/* SECTION CONFIGURATION */}
       <div className="main-card p-5 space-y-4">
@@ -806,7 +1121,7 @@ export default function PayView({ userProfile }: PayViewProps) {
 
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="block text-5xs font-bold text-slate-400 uppercase tracking-wider mb-1">Montant (€)</label>
+                <label className="block text-5xs font-bold text-slate-400 uppercase tracking-wider mb-1">Montant ({method === 'MonCash' ? 'G' : '$'})</label>
                 <input
                   type="number"
                   required
@@ -857,7 +1172,7 @@ export default function PayView({ userProfile }: PayViewProps) {
                 <input
                   type="text"
                   disabled
-                  value="EUR (€)"
+                  value={method === 'MonCash' ? 'HTG' : 'USD'}
                   className="block w-full px-2.5 py-1.5 sleek-input text-xs text-slate-400 bg-slate-50"
                 />
               </div>
@@ -1002,7 +1317,7 @@ export default function PayView({ userProfile }: PayViewProps) {
                                   <p className="text-5xs text-slate-400 font-mono truncate">{tx.customer_email}</p>
                                   {tx.application_fee_amount !== undefined && (
                                     <p className="text-5xs text-amber-600 bg-amber-50 rounded px-1.5 py-0.5 mt-0.5 inline-block font-medium border border-amber-100/60">
-                                      Commission : {tx.application_fee_amount.toLocaleString('fr-FR', { style: 'currency', currency: tx.currency })} ({userProfile?.plan === 'starter' ? '12%' : '10%'})
+                                      Commission : {formatCurrency(tx.application_fee_amount, tx.currency)} ({userProfile?.plan === 'starter' ? '12%' : '10%'})
                                     </p>
                                   )}
                                 </div>
@@ -1051,11 +1366,11 @@ export default function PayView({ userProfile }: PayViewProps) {
                             {/* Amount */}
                             <td className="px-4 py-3 whitespace-nowrap text-right font-mono">
                               <p className="text-xs font-bold text-brand-dark">
-                                {tx.amount.toLocaleString('fr-FR', { style: 'currency', currency: tx.currency })}
+                                {formatCurrency(tx.amount, tx.currency)}
                               </p>
                               {tx.net_amount !== undefined && (
                                 <p className="text-[10px] font-medium text-emerald-600">
-                                  Net : {tx.net_amount.toLocaleString('fr-FR', { style: 'currency', currency: tx.currency })}
+                                  Net : {formatCurrency(tx.net_amount, tx.currency)}
                                 </p>
                               )}
                             </td>
@@ -1242,8 +1557,8 @@ export default function PayView({ userProfile }: PayViewProps) {
                       onChange={(e) => setWidgetCurrency(e.target.value)}
                       className="block px-2 py-1 sleek-input text-xs text-brand-dark w-16"
                     >
-                      <option value="EUR">EUR (€)</option>
-                      <option value="HTG">HTG (gdes)</option>
+                      <option value="USD">USD ($)</option>
+                      <option value="HTG">HTG (G)</option>
                     </select>
                   </div>
                 </div>
@@ -1367,9 +1682,8 @@ export default function PayView({ userProfile }: PayViewProps) {
             </motion.div>
           )}
 
-        </div>
-
-      </div>
+        </>
+      )}
 
       {/* NEW API KEY MODAL */}
       {showNewKeyModal && (

@@ -81,49 +81,53 @@ const initFallbackDatabase = () => {
         id: 'tx-1',
         user_id: defaultUserId,
         amount: 49.00,
-        currency: 'EUR',
+        currency: 'USD',
         customer_name: 'Alice Dupont',
         customer_email: 'alice@dupont.com',
         status: 'succeeded',
         description: 'Abonnement Pro Mensuel',
         created_at: new Date(Date.now() - 3600000 * 4).toISOString(),
-        method: 'Stripe'
+        method: 'Stripe',
+        is_sandbox: false
       },
       {
         id: 'tx-2',
         user_id: defaultUserId,
-        amount: 129.00,
-        currency: 'EUR',
+        amount: 15000.00,
+        currency: 'HTG',
         customer_name: 'Société Bernard',
         customer_email: 'finance@bernard.fr',
         status: 'succeeded',
         description: 'Pack Sites E-commerce',
         created_at: new Date(Date.now() - 3600000 * 28).toISOString(),
-        method: 'MonCash'
+        method: 'MonCash',
+        is_sandbox: false
       },
       {
         id: 'tx-3',
         user_id: defaultUserId,
         amount: 19.99,
-        currency: 'EUR',
+        currency: 'USD',
         customer_name: 'Lucas Martin',
         customer_email: 'lucas.m@gmail.com',
         status: 'pending',
         description: 'Achat Template Premium',
         created_at: new Date(Date.now() - 3600000 * 1).toISOString(),
-        method: 'Stripe'
+        method: 'Stripe',
+        is_sandbox: false
       },
       {
         id: 'tx-4',
         user_id: defaultUserId,
         amount: 250.00,
-        currency: 'EUR',
+        currency: 'USD',
         customer_name: 'Marc Lefebvre',
         customer_email: 'm.lefe@orange.fr',
         status: 'failed',
         description: 'Prestation Accompagnement',
         created_at: new Date(Date.now() - 3600000 * 48).toISOString(),
-        method: 'API'
+        method: 'API',
+        is_sandbox: false
       }
     ];
     setLocalData('payment_transactions', mockTransactions);
@@ -179,7 +183,7 @@ const initFallbackDatabase = () => {
       {
         id: 'dom-3',
         user_id: defaultUserId,
-        domain_name: 'weel-agency.net',
+        domain_name: 'weel-tech.app',
         status: 'pending',
         dns_configured: false,
         registered_at: new Date(Date.now() - 3600000 * 2).toISOString(),
@@ -217,7 +221,7 @@ const initFallbackDatabase = () => {
         domain_id: 'dom-3',
         type: 'MX',
         name: '@',
-        value: 'mail.weel-agency.net',
+        value: 'mail.weel-tech.app',
         ttl: 14400,
         priority: 10,
         synced_with_dynadot: false,
@@ -387,37 +391,40 @@ export const mockSupabase = {
           id: 'tx-1',
           user_id: 'demo-user-123',
           amount: 49.00,
-          currency: 'EUR',
+          currency: 'USD',
           customer_name: 'Alice Dupont',
           customer_email: 'alice@dupont.com',
           status: 'succeeded',
           description: 'Abonnement Pro Mensuel',
           created_at: new Date(Date.now() - 3600000 * 4).toISOString(),
-          method: 'Stripe'
+          method: 'Stripe',
+          is_sandbox: false
         },
         {
           id: 'tx-2',
           user_id: 'demo-user-123',
-          amount: 129.00,
-          currency: 'EUR',
+          amount: 15000.00,
+          currency: 'HTG',
           customer_name: 'Société Bernard',
           customer_email: 'finance@bernard.fr',
           status: 'succeeded',
           description: 'Pack Sites E-commerce',
           created_at: new Date(Date.now() - 3600000 * 28).toISOString(),
-          method: 'MonCash'
+          method: 'MonCash',
+          is_sandbox: false
         },
         {
           id: 'tx-3',
           user_id: 'demo-user-123',
           amount: 19.99,
-          currency: 'EUR',
+          currency: 'USD',
           customer_name: 'Lucas Martin',
           customer_email: 'lucas.m@gmail.com',
           status: 'pending',
           description: 'Achat Template Premium',
           created_at: new Date(Date.now() - 3600000 * 1).toISOString(),
-          method: 'Stripe'
+          method: 'Stripe',
+          is_sandbox: false
         }
       ];
       setLocalData('transactions', txs);
@@ -496,7 +503,7 @@ export const mockSupabase = {
           domain_id: 'dom-3',
           type: 'MX',
           name: '@',
-          value: 'mail.weel-agency.net',
+          value: 'mail.weel-tech.app',
           ttl: 14400,
           priority: 10,
           synced_with_dynadot: false,

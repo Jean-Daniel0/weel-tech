@@ -9,12 +9,13 @@ import PayView from './components/PayView';
 import DomainView from './components/DomainView';
 import SettingsView from './components/SettingsView';
 import NewSiteView from './components/NewSiteView';
+import DashboardView from './components/DashboardView';
 import { Menu, X, Sparkles, LogOut, CheckCircle } from 'lucide-react';
 
 export default function App() {
   const [session, setSession] = useState<any>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [currentView, setCurrentView] = useState<SidebarView>('sites');
+  const [currentView, setCurrentView] = useState<SidebarView>('dashboard');
   const [loading, setLoading] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -101,6 +102,8 @@ export default function App() {
   // Switch sub-panels
   const renderActiveView = () => {
     switch (currentView) {
+      case 'dashboard':
+        return <DashboardView userProfile={userProfile} onViewChange={(view) => setCurrentView(view)} />;
       case 'sites':
         return <SitesView userProfile={userProfile} />;
       case 'new-site':
@@ -139,8 +142,16 @@ export default function App() {
 
   return (
     <div className="h-screen bg-[#F5F7FA] flex flex-col text-brand-dark overflow-hidden">
+      {/* Sandbox mode top banner */}
+      {userProfile?.sandbox_mode && (
+        <div className="bg-amber-500 text-white px-4 py-1.5 text-center text-xs font-bold font-display flex items-center justify-center gap-1.5 shadow-sm shrink-0 z-50">
+          <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse"></span>
+          Mode Bac à Sable Actif &mdash; Aucune transaction réelle
+        </div>
+      )}
+
       {/* Header Bar */}
-      {!isWorkspaceView && <Header userProfile={userProfile} onLogout={handleLogout} />}
+      {!isWorkspaceView && <Header userProfile={userProfile} onLogout={handleLogout} onProfileUpdate={handleProfileUpdate} />}
 
       {/* Main Container Wrapper */}
       <div className="flex-1 flex flex-col md:flex-row relative overflow-hidden min-h-0">

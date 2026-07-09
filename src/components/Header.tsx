@@ -1,14 +1,37 @@
 import { UserProfile } from '../types';
-import { isRealSupabaseConnected } from '../lib/supabase';
+import { isRealSupabaseConnected, supabase } from '../lib/supabase';
 import { LogOut, User, Sparkles, Database, Check } from 'lucide-react';
 import { Logo } from './Logo';
 
 interface HeaderProps {
   userProfile: UserProfile | null;
   onLogout: () => void;
+  onProfileUpdate: (updatedProfile: UserProfile) => void;
 }
 
-export default function Header({ userProfile, onLogout }: HeaderProps) {
+export default function Header({ userProfile, onLogout, onProfileUpdate }: HeaderProps) {
+  const isSandbox = userProfile?.sandbox_mode || false;
+
+  const handleToggleSandbox = async () => {
+    if (!userProfile) return;
+    const nextSandbox = !isSandbox;
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ sandbox_mode: nextSandbox })
+        .eq('id', userProfile.id);
+
+      if (!error) {
+        onProfileUpdate({
+          ...userProfile,
+          sandbox_mode: nextSandbox
+        });
+      }
+    } catch (e) {
+      console.error("Error toggling sandbox mode:", e);
+    }
+  };
+
   // Determine plan badge styling
   const getPlanBadgeStyle = (plan: string = 'starter') => {
     switch (plan.toLowerCase()) {
@@ -41,6 +64,26 @@ export default function Header({ userProfile, onLogout }: HeaderProps) {
 
       {/* Connection & Actions Info */}
       <div className="flex items-center gap-4">
+        {/* Toggle Mode Test / Production */}
+        {userProfile && (
+          <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1 shadow-2xs">
+            <span className="text-[10px] font-bold text-slate-500 tracking-wider uppercase hidden sm:inline">Mode Test :</span>
+            <button
+              onClick={handleToggleSandbox}
+              title={isSandbox ? "Désactiver le Mode Test" : "Activer le Mode Test"}
+              className={`relative inline-flex h-4.5 w-8 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                isSandbox ? 'bg-amber-500' : 'bg-slate-200'
+              }`}
+            >
+              <span
+                className={`pointer-events-none inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                  isSandbox ? 'translate-x-3.5' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+        )}
+
         {/* Supabase Status Indicator */}
         <div className="hidden md:flex items-center gap-1.5 text-2xs font-mono bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-lg">
           {isRealSupabaseConnected ? (
