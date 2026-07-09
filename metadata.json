@@ -1,0 +1,6 @@
+{
+  "name": "Weel-Tech",
+  "description": "Une plateforme épurée et moderne pour gérer vos sites web, vos paiements avec Vendza:Pay, vos noms de domaine avec Vendza:Domaine et vos paramètres.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
