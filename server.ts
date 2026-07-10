@@ -83,6 +83,7 @@ Vous devez STRICTEMENT retourner un objet JSON correspondant au schéma suivant 
     let success = false;
     let lastError: any = null;
     let globalTimeoutHit = false;
+    let finalJsonResult: any = null;
 
     const isUnavailableError = (err: any): boolean => {
       const errMsg = String(err?.message || '').toUpperCase();
@@ -167,7 +168,13 @@ Vous devez STRICTEMENT retourner un objet JSON correspondant au schéma suivant 
           }
         }, currentTimeout);
 
+        const text = response.text;
+        if (!text) {
+          throw new Error("Gemini n'a pas renvoyé de réponse textuelle valide.");
+        }
+        finalJsonResult = JSON.parse(text);
         console.log(`[Gemini API] Tentative ${config.attemptNum}/5 réussie avec le modèle ${config.model}.`);
+        console.log(`[AI Provider Selection] Succès: Gemini (Modèle: ${config.model}) a répondu.`);
         success = true;
         break;
       } catch (err: any) {
@@ -217,19 +224,116 @@ Vous devez STRICTEMENT retourner un objet JSON correspondant au schéma suivant 
       });
     }
 
+    // 2. Anthropic Claude Fallback Attempt
+    if (!success) {
+      const anthropicKey = process.env.ANTHROPIC_API_KEY;
+      if (!anthropicKey) {
+        console.log("[Anthropic API] ANTHROPIC_API_KEY n'est pas configurée. Impossible d'effectuer la tentative de secours.");
+      } else {
+        const elapsed = Date.now() - globalStartTime;
+        const remainingGlobalTime = globalTimeoutMs - elapsed;
+        
+        if (remainingGlobalTime <= 1000) {
+          console.log("[Anthropic API] Pas assez de temps restant pour la tentative de secours Claude.");
+        } else {
+          const currentTimeout = Math.min(15000, remainingGlobalTime);
+          console.log(`[Anthropic API] Tentative de secours avec le modèle claude-haiku-4-5-20251001 (Timeout: ${currentTimeout}ms)...`);
+          
+          try {
+            // Adapt prompt/history to Messages API format
+            let anthropicMessages = [];
+            if (history && Array.isArray(history) && history.length > 0) {
+              anthropicMessages = history.map((msg: any) => ({
+                role: msg.role === 'assistant' ? 'assistant' : 'user',
+                content: msg.content
+              }));
+            } else {
+              anthropicMessages = [{ role: 'user', content: prompt }];
+            }
+
+            const controller = new AbortController();
+            const timeoutPromise = new Promise<never>((_, reject) => {
+              const timer = setTimeout(() => {
+                controller.abort();
+                reject(new Error("TIMEOUT"));
+              }, currentTimeout);
+              if (timer && typeof timer.unref === 'function') {
+                timer.unref();
+              }
+            });
+
+            const apiPromise = fetch("https://api.anthropic.com/v1/messages", {
+              method: "POST",
+              headers: {
+                "x-api-key": anthropicKey,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json"
+              },
+              body: JSON.stringify({
+                model: "claude-haiku-4-5-20251001",
+                max_tokens: 4000,
+                system: systemInstruction,
+                messages: anthropicMessages
+              }),
+              signal: controller.signal
+            });
+
+            const fetchResponse = await Promise.race([apiPromise, timeoutPromise]) as any;
+
+            if (!fetchResponse.ok) {
+              const errBody = await fetchResponse.text();
+              throw new Error(`Erreur HTTP Anthropic ${fetchResponse.status}: ${errBody}`);
+            }
+
+            const data = await fetchResponse.json();
+            const rawText = data?.content?.[0]?.text;
+            if (!rawText) {
+              throw new Error("La réponse de Claude ne contient pas de texte.");
+            }
+
+            // Extract JSON from response. Claude sometimes wraps responses in markdown code blocks
+            let cleanJsonStr = rawText.trim();
+            if (cleanJsonStr.startsWith("```")) {
+              cleanJsonStr = cleanJsonStr.replace(/^```(?:json)?\n?/i, "").replace(/\n?```$/, "").trim();
+            }
+
+            // Extract valid JSON content helper
+            const extractJson = (text: string) => {
+              const startIdx = text.indexOf('{');
+              const endIdx = text.lastIndexOf('}');
+              if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+                const jsonCandidate = text.slice(startIdx, endIdx + 1);
+                try {
+                  return JSON.parse(jsonCandidate);
+                } catch (e) {
+                  // Fall through
+                }
+              }
+              return JSON.parse(text);
+            };
+
+            finalJsonResult = extractJson(cleanJsonStr);
+            console.log("[AI Provider Selection] Succès: Claude (Modèle: claude-haiku-4-5-20251001) a répondu.");
+            success = true;
+          } catch (err: any) {
+            const isTimeout = err?.message === "TIMEOUT" || err?.name === "AbortError";
+            if (isTimeout) {
+              console.error(`[Anthropic API] Échec de la tentative Claude - Erreur : Timeout de ${currentTimeout}ms dépassé`);
+            } else {
+              console.error(`[Anthropic API] Échec de la tentative Claude - Erreur : ${err.message || err}`);
+            }
+          }
+        }
+      }
+    }
+
     if (!success) {
       return res.status(503).json({ 
         error: "Le service de génération est momentanément surchargé. Veuillez réessayer dans quelques instants." 
       });
     }
 
-    const text = response.text;
-    if (!text) {
-      throw new Error("Gemini n'a pas renvoyé de réponse textuelle valide.");
-    }
-
-    const result = JSON.parse(text);
-    return res.json(result);
+    return res.json(finalJsonResult);
 
   } catch (error: any) {
     console.error("Erreur de génération Gemini :", error);
