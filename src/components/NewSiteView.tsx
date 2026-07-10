@@ -58,6 +58,20 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
     timestamp: string;
   } | null>(null);
   
+  // Tab and real-time generation step states
+  const [activeLeftTab, setActiveLeftTab] = useState<'chat' | 'suggestions'>('chat');
+  const [generationStepIndex, setGenerationStepIndex] = useState(-1);
+
+  const generationSteps = [
+    { label: "Analyse sémantique", desc: "Analyse des intentions de design et objectifs" },
+    { label: "Design & Couleurs", desc: "Conception de la charte graphique et du style" },
+    { label: "Structure HTML5", desc: "Structuration sémantique complète de la page" },
+    { label: "Composants CSS", desc: "Intégration et style responsive avec Tailwind CSS" },
+    { label: "Interactivité JS", desc: "Injection de l'interactivité dynamique et des animations" },
+    { label: "Recherche Médias", desc: "Sélection d'images d'illustration Unsplash adaptées" },
+    { label: "Assemblage final", desc: "Optimisation de l'affichage, polices et métadonnées" }
+  ];
+
   // Publishing state
   const [showPublishModal, setShowPublishModal] = useState(false);
   const [siteName, setSiteName] = useState('');
@@ -78,15 +92,39 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
   const suggestionPrompts = [
     {
       title: "Portfolio de Photographe",
-      desc: "Thème sombre, galerie d'images interactive, filtres et formulaire de contact épuré."
+      desc: "Thème sombre élégant, galerie interactive filtrable, vue plein écran et formulaire de contact épuré.",
+      image: "https://images.unsplash.com/photo-1542038784456-1ea8e935640e?auto=format&fit=crop&w=400&q=80",
+      prompt: "Crée un portfolio de photographe professionnel avec thème sombre et moderne, galerie d'images interactive avec filtres d'affichage et formulaire de contact fonctionnel avec style minimaliste."
     },
     {
-      title: "Boutique en Ligne de Café",
-      desc: "Hero de marque, grille produits interactive avec un panier fonctionnel en JS."
+      title: "Boutique de Café Artisanal",
+      desc: "Hero section immersive, grille de produits interactive avec panier d'achat fonctionnel et totaux en JS.",
+      image: "https://images.unsplash.com/photo-1498804103079-a6351b050096?auto=format&fit=crop&w=400&q=80",
+      prompt: "Crée un site e-commerce de café artisanal avec hero section chaleureuse, présentation de l'histoire, grille de produits interactive, panier d'achat en temps réel en JS avec gestion des quantités et calcul du total."
     },
     {
       title: "Page Agence Marketing",
-      desc: "Style épuré, témoignages animés, carte interactive et grille d'offres tarifaires."
+      desc: "Design épuré, grilles de services, témoignages animés et grille d'offres tarifaires claires.",
+      image: "https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=400&q=80",
+      prompt: "Crée une page pour une agence de marketing digital avec design moderne, section de nos services, témoignages clients animés et une grille d'offres tarifaires interactives en accordéon."
+    },
+    {
+      title: "Landing Page de SaaS / App",
+      desc: "Esthétique tech futuriste avec dégradés, tableau comparatif, FAQ et CTA percutants.",
+      image: "https://images.unsplash.com/photo-1512941937669-90a1b58e7e9c?auto=format&fit=crop&w=400&q=80",
+      prompt: "Crée une landing page pour une application SaaS avec un design technologique moderne, des dégradés de couleurs subtils, un tableau comparatif des fonctionnalités interactif et des boutons de téléchargement animés."
+    },
+    {
+      title: "Hôtel de Luxe & Réservations",
+      desc: "Galerie de photos, présentation de services premium et sélecteur de dates interactif en JS.",
+      image: "https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=400&q=80",
+      prompt: "Crée un site d'hôtel de luxe avec galerie d'images des chambres de prestige, présentation des services exclusifs et sélecteur de dates interactif pour simuler une réservation avec message de succès."
+    },
+    {
+      title: "Studio de Mode & Création",
+      desc: "Inspirations minimalistes, grand visuel éditorial, lookbook immersif et typographie soignée.",
+      image: "https://images.unsplash.com/photo-1509319117193-57bab727e09d?auto=format&fit=crop&w=400&q=80",
+      prompt: "Crée un site internet de studio de mode minimaliste avec style éditorial élégant (typographie serif), lookbook d'images, section de présentation de la collection et formulaire d'inscription à la newsletter."
     }
   ];
 
@@ -97,16 +135,22 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleSuggestionClick = (title: string, desc: string) => {
-    setPrompt(`Crée un ${title.toLowerCase()}. ${desc}`);
+  const handleSuggestionClick = (title: string, fullPromptText: string) => {
+    setActiveLeftTab('chat');
+    setPrompt('');
+    // Auto-trigger the generation immediately on selection
+    setTimeout(() => {
+      handleGenerateSite(undefined, fullPromptText);
+    }, 100);
   };
 
   // Run the site generation
-  const handleGenerateSite = async (e?: FormEvent) => {
+  const handleGenerateSite = async (e?: FormEvent, overridePrompt?: string) => {
     if (e) e.preventDefault();
-    if (!prompt.trim() || isGenerating) return;
+    const activePrompt = overridePrompt || prompt;
+    if (!activePrompt.trim() || isGenerating) return;
 
-    const userMsgText = prompt.trim();
+    const userMsgText = activePrompt.trim();
     setPrompt('');
     setErrorMessage(null);
 
@@ -155,10 +199,13 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
       { text: "✨ Optimisation finale du design (accessibilité, contrastes, icônes Lucide)...", type: 'info' as const },
     ];
 
+    setGenerationStepIndex(0);
+    const stepIntervalMs = 700; // Fast step intervals (700ms) to make generation feel extremely snappy and responsive
     steps.forEach((step, idx) => {
       const t = setTimeout(() => {
         addLog(step.text, step.type);
-      }, (idx + 1) * 1200);
+        setGenerationStepIndex(idx + 1);
+      }, (idx + 1) * stepIntervalMs);
       timeouts.push(t);
     });
 
@@ -183,6 +230,13 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
 
       // Clear timeouts since we have the result (or error)
       timeouts.forEach(clearTimeout);
+
+      // Instantly flush remaining logs for ultra-fast response
+      const currentPrintedCount = Math.min(steps.length, Math.floor((Date.now() - startTime) / stepIntervalMs));
+      for (let i = currentPrintedCount; i < steps.length; i++) {
+        addLog(steps[i].text, steps[i].type);
+      }
+      setGenerationStepIndex(6); // Jump straight to completed step state
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -262,6 +316,7 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
       setMessages(prev => [...prev, errorMessageBubble]);
     } finally {
       setIsGenerating(false);
+      setGenerationStepIndex(-1);
     }
   };
 
@@ -376,78 +431,210 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
             </span>
           </div>
 
-          {/* Chat Messages Scrolling History */}
-          <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
-            {messages.length === 0 ? (
-              // Empty State SUGGESTIONS
-              <div className="h-full flex flex-col justify-center py-2 text-center space-y-4">
-                <div className="max-w-xs mx-auto">
-                  <div className="w-8 h-8 rounded-xl bg-[#2563EB]/5 border border-brand-blue/10 flex items-center justify-center mx-auto mb-2">
-                    <Sparkles className="w-4 h-4 text-[#2563EB]" />
-                  </div>
-                  <h3 className="text-xs font-semibold text-[#0A0E1A] font-display">Décris ton site de rêve</h3>
-                  <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
-                    Saisis un court descriptif à gauche. Notre IA va créer un site web magnifique en quelques secondes.
-                  </p>
-                </div>
+          {/* Elegant Sub-Header Tab Selector (Onglets) */}
+          <div className="flex border-b border-slate-100 bg-slate-50/50 p-1 gap-1">
+            <button
+              type="button"
+              onClick={() => setActiveLeftTab('chat')}
+              className={`flex-1 py-1.5 px-3 rounded-lg text-[11px] font-bold font-display transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                activeLeftTab === 'chat'
+                  ? 'bg-white text-[#2563EB] shadow-xs border border-slate-200/50 font-semibold'
+                  : 'text-slate-500 hover:text-slate-800 hover:bg-white/40'
+              }`}
+            >
+              <Send className="w-3 h-3" />
+              Assistant Chat {messages.length > 0 && <span className="ml-1 px-1.5 py-0.2 bg-[#2563EB]/10 text-[#2563EB] text-[9px] rounded-full">{messages.length}</span>}
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveLeftTab('suggestions')}
+              className={`flex-1 py-1.5 px-3 rounded-lg text-[11px] font-bold font-display transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                activeLeftTab === 'suggestions'
+                  ? 'bg-white text-[#2563EB] shadow-xs border border-slate-200/50 font-semibold'
+                  : 'text-slate-500 hover:text-slate-800 hover:bg-white/40'
+              }`}
+            >
+              <Sparkles className="w-3 h-3" />
+              Modèles & Idées
+            </button>
+          </div>
 
-                <div className="space-y-1.5 text-left max-w-sm mx-auto">
-                  <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider px-1">suggestions rapides :</p>
-                  
+          {/* Chat Messages Scrolling History / Tab Content */}
+          <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
+            {activeLeftTab === 'suggestions' ? (
+              // Tab Suggestions: Modèles de sites inspirants avec images
+              <div className="space-y-4 py-1">
+                <div className="px-1">
+                  <h3 className="text-xs font-bold text-[#0A0E1A] font-display uppercase tracking-wider">Modèles Inspirants</h3>
+                  <p className="text-[11px] text-slate-400 mt-0.5">Explore des designs haut de gamme et génère ton site en un clic.</p>
+                </div>
+                
+                <div className="grid grid-cols-1 gap-3.5 px-0.5 pb-2">
                   {suggestionPrompts.map((sug, idx) => (
-                    <button
+                    <div 
                       key={idx}
-                      onClick={() => handleSuggestionClick(sug.title, sug.desc)}
-                      className="w-full text-left p-2 rounded-lg border border-slate-100 hover:border-brand-blue/20 bg-slate-50 hover:bg-brand-blue/5 transition duration-200 group cursor-pointer"
+                      className="group bg-white border border-slate-200/80 rounded-xl overflow-hidden shadow-xs hover:shadow-md hover:border-[#2563EB]/30 transition-all duration-300 flex flex-col"
                     >
-                      <div className="flex justify-between items-center">
-                        <span className="text-xs font-semibold text-[#0A0E1A] group-hover:text-[#2563EB] transition">{sug.title}</span>
-                        <ChevronRight className="w-3 h-3 text-slate-300 group-hover:text-[#2563EB] transform group-hover:translate-x-0.5 transition" />
+                      {/* Image Thumbnail */}
+                      <div className="h-28 w-full overflow-hidden bg-slate-100 relative shrink-0">
+                        <img 
+                          src={sug.image} 
+                          alt={sug.title} 
+                          referrerPolicy="no-referrer"
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-slate-950/40 via-transparent to-transparent opacity-60" />
+                        <span className="absolute bottom-2 left-2.5 px-2 py-0.5 bg-white/95 backdrop-blur-xs text-[10px] font-bold text-[#2563EB] rounded-md shadow-xs uppercase tracking-wide">
+                          Modèle IA
+                        </span>
                       </div>
-                      <p className="text-[10px] text-slate-400 leading-normal mt-0.5">{sug.desc}</p>
-                    </button>
+                      
+                      {/* Body details */}
+                      <div className="p-3 flex-1 flex flex-col justify-between gap-2.5">
+                        <div className="space-y-1">
+                          <h4 className="text-xs font-bold text-[#0A0E1A] tracking-tight group-hover:text-[#2563EB] transition-colors">
+                            {sug.title}
+                          </h4>
+                          <p className="text-[10px] text-slate-500 leading-relaxed font-normal">
+                            {sug.desc}
+                          </p>
+                        </div>
+                        
+                        <button
+                          type="button"
+                          onClick={() => handleSuggestionClick(sug.title, sug.prompt)}
+                          disabled={isGenerating}
+                          className="w-full py-1.5 px-3 bg-[#2563EB]/10 hover:bg-[#2563EB] text-[#2563EB] hover:text-white disabled:opacity-50 text-[10px] font-bold rounded-lg transition-all duration-200 flex items-center justify-center gap-1 cursor-pointer"
+                        >
+                          <Sparkles className="w-3 h-3" />
+                          Générer ce site
+                        </button>
+                      </div>
+                    </div>
                   ))}
                 </div>
               </div>
             ) : (
-              // Active Conversation Chat list
-              <div className="space-y-3">
-                {messages.map((msg) => (
-                  <div
-                    key={msg.id}
-                    className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                  >
-                    <div className={`max-w-[85%] rounded-xl px-2.5 py-1.5 text-xs ${
-                      msg.role === 'user'
-                        ? 'bg-[#2563EB] text-white shadow-sm shadow-blue-500/10'
-                        : 'bg-slate-100 text-[#0A0E1A] border border-slate-200/50'
-                    }`}>
-                      <p className="leading-relaxed whitespace-pre-wrap">{msg.content}</p>
-                      <span className={`text-[10px] block mt-1 text-right font-mono ${
-                        msg.role === 'user' ? 'text-blue-200' : 'text-slate-400'
-                      }`}>
-                        {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </span>
+              // Tab Active Chat Assistant
+              <>
+                {messages.length === 0 ? (
+                  // Empty State inside Chat
+                  <div className="h-full flex flex-col justify-center py-6 text-center space-y-4 max-w-xs mx-auto">
+                    <div className="w-9 h-9 rounded-xl bg-[#2563EB]/5 border border-[#2563EB]/10 flex items-center justify-center mx-auto">
+                      <Sparkles className="w-4.5 h-4.5 text-[#2563EB]" />
                     </div>
+                    <div className="space-y-1">
+                      <h3 className="text-xs font-bold text-[#0A0E1A] font-display">Décris ton site idéal</h3>
+                      <p className="text-[11px] text-slate-400 leading-relaxed">
+                        Écris tes idées ci-dessous, ou parcours les modèles visuels haut de gamme dans l'onglet des suggestions.
+                      </p>
+                    </div>
+                    
+                    <button
+                      type="button"
+                      onClick={() => setActiveLeftTab('suggestions')}
+                      className="px-3.5 py-1.5 bg-[#2563EB]/10 hover:bg-[#2563EB]/20 text-[#2563EB] font-bold text-[11px] rounded-lg transition-all cursor-pointer inline-flex items-center justify-center gap-1 mx-auto"
+                    >
+                      <Sparkles className="w-3 h-3" />
+                      Découvrir les modèles
+                    </button>
                   </div>
-                ))}
-
-                {/* Loading state indicator bubble */}
-                {isGenerating && (
-                  <div className="flex justify-start">
-                    <div className="bg-slate-100 border border-slate-200/50 rounded-xl px-3 py-2 text-xs text-[#0A0E1A] flex flex-col gap-1.5 max-w-[85%]">
-                      <div className="flex items-center gap-1.5">
-                        <svg className="animate-spin h-3 w-3 text-[#2563EB]" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                        </svg>
-                        <span className="font-semibold text-slate-500 font-display uppercase tracking-wider text-[10px]">Génération par l'IA...</span>
+                ) : (
+                  // Active Conversation Chat list
+                  <div className="space-y-3 pb-2">
+                    {messages.map((msg) => (
+                      <div
+                        key={msg.id}
+                        className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                      >
+                        <div className={`max-w-[85%] rounded-xl px-2.5 py-1.5 text-xs ${
+                          msg.role === 'user'
+                            ? 'bg-[#2563EB] text-white shadow-sm shadow-blue-500/10'
+                            : 'bg-slate-100 text-[#0A0E1A] border border-slate-200/50'
+                        }`}>
+                          <p className="leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                          <span className={`text-[10px] block mt-1 text-right font-mono ${
+                            msg.role === 'user' ? 'text-blue-200' : 'text-slate-400'
+                          }`}>
+                            {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
                       </div>
-                      <p className="text-[10px] text-slate-400 animate-pulse">Création du design, structuration du HTML et programmation...</p>
-                    </div>
+                    ))}
+
+                    {/* Stateful Real-time Stepper inside Chat Loading Bubble */}
+                    {isGenerating && (
+                      <div className="flex justify-start">
+                        <div className="bg-white border border-slate-200 shadow-sm rounded-xl p-3.5 text-xs text-[#0A0E1A] flex flex-col gap-3 max-w-[90%] w-full">
+                          <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                            <div className="flex items-center gap-1.5">
+                              <span className="relative flex h-2 w-2">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-2 w-2 bg-[#2563EB]"></span>
+                              </span>
+                              <span className="font-bold text-[#0A0E1A] font-display uppercase tracking-wider text-[10px]">Création en cours...</span>
+                            </div>
+                            <span className="text-[10px] font-mono text-slate-400 font-semibold bg-slate-100 px-1.5 py-0.5 rounded">
+                              Étape {Math.max(1, generationStepIndex + 1)} / 7
+                            </span>
+                          </div>
+
+                          {/* Progress bar line */}
+                          <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                            <div 
+                              className="bg-[#2563EB] h-1.5 rounded-full transition-all duration-300"
+                              style={{ width: `${((Math.max(0, generationStepIndex + 1)) / 7) * 100}%` }}
+                            />
+                          </div>
+
+                          {/* Steps with indicators */}
+                          <div className="space-y-2">
+                            {generationSteps.map((step, idx) => {
+                              const isDone = idx < generationStepIndex;
+                              const isActive = idx === generationStepIndex;
+                              const isPending = idx > generationStepIndex;
+
+                              return (
+                                <div 
+                                  key={idx} 
+                                  className={`flex items-start gap-2.5 text-[11px] transition-all duration-200 ${
+                                    isActive ? 'text-[#2563EB] font-medium scale-[1.01]' : isPending ? 'text-slate-400 opacity-60' : 'text-slate-600'
+                                  }`}
+                                >
+                                  <div className="mt-0.5 shrink-0">
+                                    {isDone ? (
+                                      <div className="w-3.5 h-3.5 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center">
+                                        <Check className="w-2.5 h-2.5" />
+                                      </div>
+                                    ) : isActive ? (
+                                      <div className="w-3.5 h-3.5 rounded-full border border-[#2563EB] bg-blue-50 flex items-center justify-center">
+                                        <div className="w-1.5 h-1.5 rounded-full bg-[#2563EB] animate-pulse" />
+                                      </div>
+                                    ) : (
+                                      <div className="w-3.5 h-3.5 rounded-full border border-slate-200 bg-slate-50 flex items-center justify-center text-[8px] text-slate-400">
+                                        {idx + 1}
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="flex-1">
+                                    <div className="flex items-center justify-between leading-none">
+                                      <span>{step.label}</span>
+                                      {isActive && <span className="text-[9px] font-mono animate-pulse text-[#2563EB]">actif...</span>}
+                                    </div>
+                                    {isActive && (
+                                      <p className="text-[10px] text-slate-400 mt-1.5 leading-tight">{step.desc}</p>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
-              </div>
+              </>
             )}
           </div>
 

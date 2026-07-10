@@ -79,12 +79,9 @@ Vous devez STRICTEMENT retourner un objet JSON correspondant au schéma suivant 
 - message : Résumé conversationnel court (en français, 2-3 phrases) des choix esthétiques, des sections et de l'interactivité ajoutée ou modifiée.
 - html : Le code source HTML de haute qualité complet, propre et fonctionnel de la page.`;
 
-    let model = 'gemini-3.5-flash';
     let response: any = null;
     let success = false;
     let lastError: any = null;
-    const maxRetries = 3;
-    const backoffDelays = [1000, 3000, 6000];
 
     const isUnavailableError = (err: any): boolean => {
       const errMsg = String(err?.message || '').toUpperCase();
@@ -98,12 +95,22 @@ Vous devez STRICTEMENT retourner un objet JSON correspondant au schéma suivant 
              err?.statusCode === 503;
     };
 
-    // Primary attempts with gemini-3.5-flash (up to 3 retries, total of 4 attempts if UNAVAILABLE)
-    for (let attempt = 1; attempt <= 4; attempt++) {
-      console.log(`[Gemini API] Tentative ${attempt}/4 avec le modèle ${model}...`);
+    // Configuration for the 5 generation attempts
+    const attemptsConfig = [
+      { attemptNum: 1, model: 'gemini-3.5-flash', backoff: 1000 },
+      { attemptNum: 2, model: 'gemini-3.5-flash', backoff: 3000 },
+      { attemptNum: 3, model: 'gemini-3.5-flash', backoff: 6000 },
+      { attemptNum: 4, model: 'gemini-flash-latest', backoff: 2000 },
+      { attemptNum: 5, model: 'gemini-2.5-flash-lite', backoff: 0 }
+    ];
+
+    // Running the defined sequence of generation attempts
+    for (let i = 0; i < attemptsConfig.length; i++) {
+      const config = attemptsConfig[i];
+      console.log(`[Gemini API] Tentative ${config.attemptNum}/5 avec le modèle ${config.model}...`);
       try {
         response = await ai.models.generateContent({
-          model: model,
+          model: config.model,
           contents: contents,
           config: {
             systemInstruction: systemInstruction,
@@ -124,60 +131,24 @@ Vous devez STRICTEMENT retourner un objet JSON correspondant au schéma suivant 
             }
           }
         });
-        console.log(`[Gemini API] Tentative ${attempt} réussie avec le modèle ${model}.`);
+        console.log(`[Gemini API] Tentative ${config.attemptNum}/5 réussie avec le modèle ${config.model}.`);
         success = true;
         break;
       } catch (err: any) {
         lastError = err;
-        console.error(`[Gemini API] Échec de la tentative ${attempt}/4 avec ${model} : ${err.message || err}`);
+        console.error(`[Gemini API] Échec de la tentative ${config.attemptNum}/5 avec le modèle ${config.model} - Erreur : ${err.message || err} (Status/Code: ${err?.status || err?.statusCode || err?.code || 'N/A'})`);
         
         // Stop early if the error is non-transient (e.g. invalid API key, invalid request parameters, etc.)
         if (!isUnavailableError(err)) {
-          console.log(`[Gemini API] Erreur non-transitoire détectée. Arrêt immédiat.`);
+          console.log(`[Gemini API] Erreur non-transitoire détectée à la tentative ${config.attemptNum}. Arrêt immédiat.`);
           break;
         }
 
         // Wait with backoff before next retry
-        if (attempt <= maxRetries) {
-          const waitMs = backoffDelays[attempt - 1];
-          console.log(`[Gemini API] Service indisponible. Attente de ${waitMs / 1000}s avant le prochain essai...`);
-          await new Promise(resolve => setTimeout(resolve, waitMs));
+        if (config.backoff > 0 && i < attemptsConfig.length - 1) {
+          console.log(`[Gemini API] Service indisponible. Attente de ${config.backoff / 1000}s avant le prochain essai...`);
+          await new Promise(resolve => setTimeout(resolve, config.backoff));
         }
-      }
-    }
-
-    // Fallback to gemini-flash-latest if gemini-3.5-flash failed
-    if (!success) {
-      model = 'gemini-flash-latest';
-      console.log(`[Gemini API] Toutes les tentatives avec gemini-3.5-flash ont échoué. Tentative finale de secours avec ${model}...`);
-      try {
-        response = await ai.models.generateContent({
-          model: model,
-          contents: contents,
-          config: {
-            systemInstruction: systemInstruction,
-            responseMimeType: "application/json",
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                message: {
-                  type: Type.STRING,
-                  description: "Explication synthétique et chaleureuse en français des choix de design et fonctionnalités."
-                },
-                html: {
-                  type: Type.STRING,
-                  description: "Le code HTML complet, autonome, valide et fonctionnel incluant Tailwind CSS et JS d'interaction."
-                }
-              },
-              required: ["message", "html"]
-            }
-          }
-        });
-        console.log(`[Gemini API] Succès de secours avec le modèle ${model}.`);
-        success = true;
-      } catch (err: any) {
-        lastError = err;
-        console.error(`[Gemini API] Échec définitif du modèle de secours ${model} : ${err.message || err}`);
       }
     }
 
