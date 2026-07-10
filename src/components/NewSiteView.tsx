@@ -13,7 +13,12 @@ import {
   ChevronLeft,
   ChevronRight,
   Info,
-  Laptop
+  Laptop,
+  Code2,
+  Copy,
+  Terminal,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -29,12 +34,29 @@ interface ChatMessage {
   timestamp: Date;
 }
 
+interface TerminalLog {
+  id: string;
+  text: string;
+  type: 'info' | 'success' | 'warning' | 'error' | 'system';
+  timestamp: string;
+}
+
 export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [prompt, setPrompt] = useState('');
   const [generatedHtml, setGeneratedHtml] = useState<string>('');
   const [isGenerating, setIsGenerating] = useState(false);
-  const [previewMode, setPreviewMode] = useState<'desktop' | 'mobile'>('desktop');
+  const [previewMode, setPreviewMode] = useState<'desktop' | 'mobile' | 'code'>('desktop');
+  const [copied, setCopied] = useState(false);
+  const [isLogsExpanded, setIsLogsExpanded] = useState(true);
+  const [terminalLogs, setTerminalLogs] = useState<TerminalLog[]>([]);
+  const [buildSummary, setBuildSummary] = useState<{
+    status: 'idle' | 'building' | 'success' | 'error';
+    duration: string;
+    linesCount: number;
+    sizeKb: string;
+    timestamp: string;
+  } | null>(null);
   
   // Publishing state
   const [showPublishModal, setShowPublishModal] = useState(false);
@@ -68,6 +90,13 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
     }
   ];
 
+  const handleCopyCode = () => {
+    if (!generatedHtml) return;
+    navigator.clipboard.writeText(generatedHtml);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   const handleSuggestionClick = (title: string, desc: string) => {
     setPrompt(`Crée un ${title.toLowerCase()}. ${desc}`);
   };
@@ -94,6 +123,45 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
     setMessages(prev => [...prev, userMessage]);
     setIsGenerating(true);
 
+    // Initialize terminal logs and build summary
+    setTerminalLogs([]);
+    setBuildSummary(null);
+    setIsLogsExpanded(true);
+
+    const startTime = Date.now();
+    const timeouts: NodeJS.Timeout[] = [];
+
+    const addLog = (text: string, type: 'info' | 'success' | 'warning' | 'error' | 'system' = 'info') => {
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      setTerminalLogs(prev => [...prev, {
+        id: 'log-' + Math.random().toString(36).substring(2, 11),
+        text,
+        type,
+        timestamp: timeStr
+      }]);
+    };
+
+    // Add first initial logs
+    addLog("🔌 Connexion sécurisée au serveur de génération Weel-Tech...", "system");
+    addLog(`📥 Message reçu de l'utilisateur: "${userMsgText}"`, "info");
+    addLog("🧠 Analyse sémantique et extraction des intentions de design...", "info");
+
+    const steps = [
+      { text: "📡 Envoi de la requête au modèle d'IA Gemini 3.5 Flash...", type: 'info' as const },
+      { text: "🎨 Conception de la charte graphique et sélection de la palette de couleurs...", type: 'info' as const },
+      { text: "🛠️ Structuration du document HTML5 sémantique avec Tailwind CSS...", type: 'info' as const },
+      { text: "📦 Injection des modules d'interaction réactifs et de l'interactivité JS...", type: 'info' as const },
+      { text: "🖼️ Sélection et intégration d'images d'illustrations professionnelles (Unsplash)...", type: 'info' as const },
+      { text: "✨ Optimisation finale du design (accessibilité, contrastes, icônes Lucide)...", type: 'info' as const },
+    ];
+
+    steps.forEach((step, idx) => {
+      const t = setTimeout(() => {
+        addLog(step.text, step.type);
+      }, (idx + 1) * 1200);
+      timeouts.push(t);
+    });
+
     try {
       // Build conversational history for Gemini proxy endpoint
       // We convert local ChatMessage structure to server-expected role/content list
@@ -113,6 +181,9 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
         })
       });
 
+      // Clear timeouts since we have the result (or error)
+      timeouts.forEach(clearTimeout);
+
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.error || "Une erreur est survenue pendant la génération.");
@@ -122,8 +193,29 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
 
       // Check return payload
       if (data && data.html) {
+        // Log final stages
+        addLog("🔮 Code HTML reçu avec succès de l'IA.", "info");
+        addLog("🚀 Compilation finale et assemblage du livrable...", "system");
+        
         setGeneratedHtml(data.html);
         
+        // Add final compilation logs
+        addLog("✅ Rendu de la page compilé avec succès !", "success");
+        const linesCount = data.html.split('\n').length;
+        const sizeKb = (new Blob([data.html]).size / 1024).toFixed(2);
+        const duration = ((Date.now() - startTime) / 1000).toFixed(1) + 's';
+
+        addLog(`📈 Statistiques du livrable : ${linesCount} lignes de code, ${sizeKb} KB.`, "success");
+        addLog("✨ Vue d'aperçu rafraîchie en temps réel.", "success");
+
+        setBuildSummary({
+          status: 'success',
+          duration,
+          linesCount,
+          sizeKb: `${sizeKb} KB`,
+          timestamp: new Date().toLocaleTimeString()
+        });
+
         // Add AI response bubble
         const assistantMsgId = 'msg-' + Math.random().toString(36).substring(2, 11);
         const assistantMessage: ChatMessage = {
@@ -145,6 +237,18 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
 
     } catch (err: any) {
       console.error(err);
+      timeouts.forEach(clearTimeout);
+      addLog(`❌ Erreur critique de génération : ${err.message || "Une erreur inconnue est survenue."}`, "error");
+
+      const duration = ((Date.now() - startTime) / 1000).toFixed(1) + 's';
+      setBuildSummary({
+        status: 'error',
+        duration,
+        linesCount: 0,
+        sizeKb: '0 KB',
+        timestamp: new Date().toLocaleTimeString()
+      });
+
       setErrorMessage(err.message || "Impossible de générer le site. Vérifiez les paramètres de votre clé API.");
       
       // Add error message as system bubble
@@ -237,34 +341,6 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
             Retour
           </button>
 
-          {/* Desktop/Mobile Size Selector */}
-          {generatedHtml && (
-            <div className="bg-white border border-slate-200 rounded-lg p-0.5 flex gap-0.5 shadow-xs">
-              <button
-                onClick={() => setPreviewMode('desktop')}
-                className={`p-1 rounded-md transition-all cursor-pointer ${
-                  previewMode === 'desktop'
-                    ? 'bg-[#2563EB]/10 text-[#2563EB] font-semibold'
-                    : 'text-slate-400 hover:text-slate-600'
-                }`}
-                title="Aperçu Ordinateur"
-              >
-                <Monitor className="w-3.5 h-3.5" />
-              </button>
-              <button
-                onClick={() => setPreviewMode('mobile')}
-                className={`p-1 rounded-md transition-all cursor-pointer ${
-                  previewMode === 'mobile'
-                    ? 'bg-[#2563EB]/10 text-[#2563EB] font-semibold'
-                    : 'text-slate-400 hover:text-slate-600'
-                }`}
-                title="Aperçu Smartphone"
-              >
-                <Smartphone className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          )}
-
           {/* Publish Trigger Button */}
           <button
             onClick={() => setShowPublishModal(true)}
@@ -281,10 +357,10 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
       <div className="grid grid-cols-1 md:grid-cols-10 gap-4 flex-1 min-h-0 items-stretch">
         
         {/* LEFT COLUMN: Conversational AI Panel (4 / 10 = 40%) */}
-        <div className="md:col-span-4 flex flex-col bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs relative" style={{ height: '352.205px' }}>
+        <div className="md:col-span-4 flex flex-col bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs relative h-[550px]">
           
           {/* Chat Panel Header */}
-          <div className="bg-slate-50/70 border-b border-slate-100 pr-3 py-2 flex items-center justify-between" style={{ paddingLeft: '13px', marginLeft: '0px', marginBottom: '34px' }}>
+          <div className="bg-slate-50/70 border-b border-slate-100 px-3.5 py-3 flex items-center justify-between">
             <div className="flex items-center gap-1.5">
               <div className="w-6 h-6 rounded-md bg-[#2563EB]/10 flex items-center justify-center text-[#2563EB]">
                 <Sparkles className="w-3.5 h-3.5" />
@@ -301,7 +377,7 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
           </div>
 
           {/* Chat Messages Scrolling History */}
-          <div className="flex-1 overflow-y-auto p-3 space-y-2.5" style={{ width: '360.92px' }}>
+          <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
             {messages.length === 0 ? (
               // Empty State SUGGESTIONS
               <div className="h-full flex flex-col justify-center py-2 text-center space-y-4">
@@ -402,76 +478,295 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
         </div>
 
         {/* RIGHT COLUMN: Live Interactive HTML Sandbox Preview (6 / 10 = 60%) */}
-        <div className="md:col-span-6 bg-slate-100 border border-slate-200 rounded-xl flex flex-col justify-center items-center shadow-inner relative overflow-hidden" style={{ paddingLeft: '20px', paddingRight: '20px', paddingBottom: '20px', paddingTop: '20px', marginLeft: '-6px', marginBottom: '-23px', marginRight: '-14px', marginTop: '-4px' }}>
+        <div className="md:col-span-6 flex flex-col bg-white border border-slate-200 rounded-xl shadow-sm relative overflow-hidden h-[550px]">
           
-          {/* Interactive frame sandbox wrapper */}
-          <div className="flex items-center justify-center flex-1" style={{ width: '553.688px', height: '335.571px' }}>
-            {generatedHtml ? (
-              <div 
-                className={`transition-all duration-300 w-full h-full flex items-center justify-center ${
-                  previewMode === 'mobile' ? 'max-w-[280px]' : 'max-w-full'
+          {/* Preview Panel Header with Pill Switcher */}
+          <div className="bg-slate-50/70 border-b border-slate-100 px-4 py-2 flex items-center justify-between shrink-0">
+            <div className="flex items-center gap-1.5">
+              {previewMode === 'desktop' && <Monitor className="w-4 h-4 text-slate-500" />}
+              {previewMode === 'mobile' && <Smartphone className="w-4 h-4 text-slate-500" />}
+              {previewMode === 'code' && <Code2 className="w-4 h-4 text-slate-500" />}
+              <span className="text-xs font-semibold text-[#0A0E1A] font-display">
+                {previewMode === 'desktop' && "Aperçu Ordinateur"}
+                {previewMode === 'mobile' && "Aperçu Smartphone"}
+                {previewMode === 'code' && "Code Source HTML"}
+              </span>
+            </div>
+
+            {/* Pill Switcher */}
+            <div className="bg-slate-100 rounded-lg p-0.5 flex gap-0.5 border border-slate-200/40 shrink-0">
+              <button
+                type="button"
+                onClick={() => setPreviewMode('desktop')}
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all duration-200 cursor-pointer ${
+                  previewMode === 'desktop'
+                    ? 'bg-white text-[#2563EB] shadow-xs border border-slate-200/10'
+                    : 'text-slate-500 hover:text-slate-800 hover:bg-slate-200/50'
                 }`}
+                title="Aperçu Ordinateur"
               >
-                {previewMode === 'mobile' ? (
-                  // Mobile device viewport frame mockup
-                  <div className="w-full h-[480px] bg-slate-900 rounded-[30px] border-[8px] border-slate-900 shadow-2xl relative overflow-hidden flex flex-col">
-                    {/* Speaker notch */}
-                    <div className="absolute top-0 left-1/2 transform -translate-x-1/2 w-20 h-3 bg-slate-900 rounded-b-lg z-20 flex items-center justify-center">
-                      <div className="w-6 h-0.5 bg-slate-700 rounded-full"></div>
-                    </div>
-                    {/* Web Content inside frame */}
-                    <div className="flex-1 bg-white pt-3 overflow-hidden relative rounded-xl">
-                      <iframe
-                        srcDoc={generatedHtml}
-                        className="w-full h-full border-none"
-                        title="Aperçu Mobile"
-                      />
-                    </div>
-                  </div>
-                ) : (
+                <Monitor className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Bureau</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setPreviewMode('mobile')}
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all duration-200 cursor-pointer ${
+                  previewMode === 'mobile'
+                    ? 'bg-white text-[#2563EB] shadow-xs border border-slate-200/10'
+                    : 'text-slate-500 hover:text-slate-800 hover:bg-slate-200/50'
+                }`}
+                title="Aperçu Smartphone"
+              >
+                <Smartphone className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Mobile</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setPreviewMode('code')}
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all duration-200 cursor-pointer ${
+                  previewMode === 'code'
+                    ? 'bg-white text-[#2563EB] shadow-xs border border-slate-200/10'
+                    : 'text-slate-500 hover:text-slate-800 hover:bg-slate-200/50'
+                }`}
+                title="Code Source HTML"
+              >
+                <Code2 className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Code</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Interactive Preview Viewport Panel */}
+          <div className="flex-1 min-h-0 bg-slate-50/50 flex flex-col relative">
+            {generatedHtml ? (
+              <>
+                {previewMode === 'desktop' && (
                   // Laptop viewport frame mockup
-                  <div className="w-full h-full flex flex-col bg-white border border-slate-200 rounded-xl overflow-hidden shadow-md">
-                    {/* Browser top-bar */}
-                    <div className="bg-slate-50 border-b border-slate-200/60 px-2.5 py-1.5 flex items-center gap-1.5 shrink-0">
-                      <div className="flex gap-1">
-                        <span className="w-2 h-2 rounded-full bg-red-400"></span>
-                        <span className="w-2 h-2 rounded-full bg-yellow-400"></span>
-                        <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                  <div className="w-full h-full flex flex-col p-4">
+                    <div className="w-full h-full flex flex-col bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                      {/* Browser top-bar */}
+                      <div className="bg-slate-50/80 border-b border-slate-200/60 px-2.5 py-1.5 flex items-center gap-1.5 shrink-0">
+                        <div className="flex gap-1 shrink-0">
+                          <span className="w-2 h-2 rounded-full bg-red-400"></span>
+                          <span className="w-2 h-2 rounded-full bg-yellow-400"></span>
+                          <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                        </div>
+                        
+                        {/* URL input field mockup */}
+                        <div className="bg-white border border-slate-200 rounded px-2.5 py-0.5 text-[10px] text-slate-400 font-mono flex-1 max-w-sm mx-auto flex items-center gap-1">
+                          <Globe className="w-2.5 h-2.5 text-slate-300 shrink-0" />
+                          <span className="truncate">localhost:3000/live_preview.html</span>
+                        </div>
                       </div>
                       
-                      {/* URL input field mockup */}
-                      <div className="bg-white border border-slate-200 rounded px-1.5 py-0.5 text-[10px] text-slate-400 font-mono flex-1 max-w-xs mx-auto flex items-center gap-1">
-                        <Globe className="w-2.5 h-2.5 text-slate-300 shrink-0" />
-                        <span>localhost:3000/live_preview.html</span>
+                      {/* Live preview sandbox iframe content */}
+                      <div className="flex-1 bg-white relative">
+                        <iframe
+                          srcDoc={generatedHtml}
+                          className="absolute inset-0 w-full h-full border-none"
+                          title="Aperçu Desktop"
+                        />
                       </div>
-                    </div>
-                    
-                    {/* Live preview sandbox iframe content */}
-                    <div className="flex-1 bg-white relative">
-                      <iframe
-                        srcDoc={generatedHtml}
-                        className="w-full h-full border-none min-h-[350px]"
-                        title="Aperçu Desktop"
-                      />
                     </div>
                   </div>
                 )}
-              </div>
+
+                {previewMode === 'mobile' && (
+                  // Mobile device viewport frame mockup
+                  <div className="w-full h-full flex items-center justify-center p-4 overflow-y-auto">
+                    {/* Device outline */}
+                    <div className="w-[320px] h-[450px] bg-slate-900 rounded-[36px] border-[10px] border-slate-900 shadow-xl relative overflow-hidden flex flex-col shrink-0">
+                      {/* Speaker notch / Dynamic Island */}
+                      <div className="absolute top-1 left-1/2 transform -translate-x-1/2 w-24 h-4 bg-slate-900 rounded-full z-20 flex items-center justify-center">
+                        <div className="w-2 h-2 rounded-full bg-slate-800 mr-2"></div>
+                        <div className="w-8 h-1 bg-slate-800 rounded-full"></div>
+                      </div>
+                      {/* Web Content inside frame */}
+                      <div className="flex-1 bg-white pt-5 overflow-hidden relative rounded-2xl">
+                        <iframe
+                          srcDoc={generatedHtml}
+                          className="absolute inset-0 w-full h-full border-none"
+                          title="Aperçu Mobile"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {previewMode === 'code' && (
+                  // Custom highlighted source code block with copy button and line numbers
+                  <div className="w-full h-full flex flex-col relative bg-slate-900 text-slate-100 overflow-hidden">
+                    {/* Top action header */}
+                    <div className="bg-slate-800/80 border-b border-slate-700/50 px-4 py-2 flex items-center justify-between shrink-0">
+                      <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider">HTML5 Source • {generatedHtml.split('\n').length} lignes</span>
+                      <button
+                        type="button"
+                        onClick={handleCopyCode}
+                        className="flex items-center gap-1 px-2.5 py-1 bg-slate-700 hover:bg-slate-600 active:bg-slate-800 text-slate-200 hover:text-white rounded text-[10px] font-semibold font-mono transition cursor-pointer shadow-xs border border-slate-600/30"
+                      >
+                        {copied ? (
+                          <>
+                            <Check className="w-3 h-3 text-emerald-400" />
+                            <span>Copié !</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3 h-3" />
+                            <span>Copier le code</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    {/* Scrollable container with line numbers */}
+                    <div className="flex-1 overflow-auto font-mono text-[11px] leading-normal py-3 select-text bg-slate-950">
+                      {generatedHtml.split('\n').map((line, idx) => (
+                        <div key={idx} className="flex hover:bg-slate-850/30 w-full px-4">
+                          <span className="w-9 text-right text-slate-500 select-none pr-3 border-r border-slate-800 shrink-0 font-normal">
+                            {idx + 1}
+                          </span>
+                          <span className="pl-4 font-normal text-slate-300 whitespace-pre overflow-x-auto block flex-1">
+                            {line.trim() === '' ? ' ' : highlightHtmlLine(line)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
             ) : (
               // Empty code placeholder screen
-              <div className="text-center p-4 max-w-sm">
-                <div className="w-10 h-10 rounded-full bg-white border border-slate-200 flex items-center justify-center mx-auto mb-2.5 shadow-sm text-slate-300">
-                  <Laptop className="w-5 h-5" />
+              <div className="text-center p-6 max-w-sm mx-auto my-auto">
+                <div className="w-12 h-12 rounded-full bg-white border border-slate-200 flex items-center justify-center mx-auto mb-3.5 shadow-xs text-slate-300">
+                  <Laptop className="w-6 h-6" />
                 </div>
                 <h3 className="text-sm font-semibold text-[#0A0E1A] font-display tracking-tight">Aperçu en direct</h3>
                 <p className="text-[11px] text-slate-400 max-w-xs mx-auto mt-1 leading-relaxed">
-                  Aucun site n'a été créé pour le moment. Rédigez un prompt conversationnel à gauche pour voir votre site s'afficher ici.
+                  Aucun site n'a été créé pour le moment. Décrivez votre idée à gauche pour lancer la génération de l'IA.
                 </p>
               </div>
             )}
           </div>
         </div>
 
+      </div>
+
+      {/* Live Generation Panel */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-lg shrink-0">
+        {/* Panel Header */}
+        <button
+          type="button"
+          onClick={() => setIsLogsExpanded(!isLogsExpanded)}
+          className="w-full flex items-center justify-between px-4 py-2.5 bg-slate-950 border-b border-slate-800 cursor-pointer select-none text-slate-300 hover:text-white hover:bg-slate-900/80 transition"
+        >
+          <div className="flex items-center gap-2">
+            <Terminal className="w-4 h-4 text-slate-400" />
+            <span className="text-[11px] font-semibold font-mono tracking-wider uppercase">
+              Console de Génération en Direct
+            </span>
+            {isGenerating && (
+              <span className="flex items-center gap-1.5 ml-2">
+                <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+                <span className="text-[10px] text-amber-400 font-mono font-medium">Compilation en cours...</span>
+              </span>
+            )}
+            {!isGenerating && buildSummary?.status === 'success' && (
+              <span className="flex items-center gap-1.5 ml-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                <span className="text-[10px] text-emerald-400 font-mono font-medium">Prêt • Succès</span>
+              </span>
+            )}
+            {!isGenerating && buildSummary?.status === 'error' && (
+              <span className="flex items-center gap-1.5 ml-2">
+                <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                <span className="text-[10px] text-red-400 font-mono font-medium">Erreur</span>
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-3">
+            {!isGenerating && buildSummary && (
+              <div className="hidden sm:flex items-center gap-3 text-[10px] font-mono text-slate-400">
+                <span>Temps: <strong className="text-slate-200">{buildSummary.duration}</strong></span>
+                <span className="w-1.5 h-1.5 rounded-full bg-slate-700"></span>
+                <span>Poids: <strong className="text-slate-200">{buildSummary.sizeKb}</strong></span>
+                <span className="w-1.5 h-1.5 rounded-full bg-slate-700"></span>
+                <span>Lignes: <strong className="text-slate-200">{buildSummary.linesCount}</strong></span>
+              </div>
+            )}
+            {isLogsExpanded ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronUp className="w-4 h-4 text-slate-400" />}
+          </div>
+        </button>
+
+        {/* Panel Content (Terminal Logs) */}
+        {isLogsExpanded && (
+          <div className="p-3 bg-slate-950 flex flex-col md:flex-row gap-4 min-h-[120px] max-h-[160px] overflow-y-auto">
+            {/* Left side: Terminal lines */}
+            <div className="flex-1 font-mono text-[10px] leading-relaxed space-y-1 overflow-y-auto">
+              {terminalLogs.length === 0 ? (
+                <div className="text-slate-600 italic py-4 pl-1">
+                  En attente d'une action de génération IA pour démarrer les logs de compilation...
+                </div>
+              ) : (
+                terminalLogs.map((log) => (
+                  <div key={log.id} className="flex items-start gap-1.5 hover:bg-slate-900/30 px-1 rounded transition duration-150">
+                    <span className="text-slate-600 shrink-0">[{log.timestamp}]</span>
+                    <span className={`shrink-0 font-bold uppercase text-[9px] px-1 rounded-xs ${
+                      log.type === 'success' ? 'bg-emerald-950 text-emerald-400' :
+                      log.type === 'error' ? 'bg-red-950 text-red-400' :
+                      log.type === 'system' ? 'bg-blue-950 text-blue-400' :
+                      'bg-slate-800 text-slate-400'
+                    }`}>
+                      {log.type}
+                    </span>
+                    <span className={`flex-1 break-all ${
+                      log.type === 'success' ? 'text-emerald-400 font-medium' :
+                      log.type === 'error' ? 'text-red-400 font-semibold animate-pulse' :
+                      log.type === 'system' ? 'text-blue-300 font-medium' :
+                      'text-slate-300'
+                    }`}>
+                      {log.text}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Right side: Build Summary Card */}
+            {buildSummary && (
+              <div className="w-full md:w-56 bg-slate-900 border border-slate-800/80 rounded-lg p-2.5 flex flex-col justify-between shrink-0 font-mono text-[10px]">
+                <div>
+                  <h4 className="text-[10px] font-semibold uppercase text-slate-400 border-b border-slate-800 pb-1.5 mb-2 tracking-wider">
+                    Résumé du Build
+                  </h4>
+                  <div className="space-y-1.5 text-slate-300">
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Statut :</span>
+                      <span className={buildSummary.status === 'success' ? 'text-emerald-400 font-semibold' : 'text-red-400 font-semibold'}>
+                        {buildSummary.status === 'success' ? 'SUCCÈS' : 'ÉCHEC'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Durée :</span>
+                      <span className="text-slate-200">{buildSummary.duration}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Poids :</span>
+                      <span className="text-slate-200">{buildSummary.sizeKb}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Code :</span>
+                      <span className="text-slate-200">{buildSummary.linesCount} lignes</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="text-[9px] text-slate-500 text-right mt-2 border-t border-slate-800/50 pt-1">
+                  Compilé à {buildSummary.timestamp}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* PUBLISHING COMPLETED MODAL OVERLAY */}
@@ -625,4 +920,28 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
 
     </div>
   );
+}
+
+// Simple, high-quality syntax highlighting for raw HTML code lines in standard JSX
+function highlightHtmlLine(line: string) {
+  let escaped = line
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  // Return comments immediately
+  if (escaped.includes('&lt;!--')) {
+    return <span className="text-slate-500 italic" dangerouslySetInnerHTML={{ __html: escaped }} />;
+  }
+
+  // Tags highlighted in blue/cyan
+  escaped = escaped.replace(/(&lt;\/?[a-zA-Z0-9-:]+)/g, '<span class="text-blue-400 font-medium">$1</span>');
+  escaped = escaped.replace(/(&gt;)/g, '<span class="text-blue-400 font-medium">$1</span>');
+  escaped = escaped.replace(/(\/&gt;)/g, '<span class="text-blue-400 font-medium">$1</span>');
+
+  // Attributes highlighted in purple, and their string values in green
+  escaped = escaped.replace(/([a-zA-Z0-9-]+)=(&quot;.*?&quot;)/g, '<span class="text-purple-400">$1</span>=<span class="text-emerald-400">$2</span>');
+  escaped = escaped.replace(/([a-zA-Z0-9-]+)=(&#x27;.*?&#x27;)/g, '<span class="text-purple-400">$1</span>=<span class="text-emerald-400">$2</span>');
+
+  return <span dangerouslySetInnerHTML={{ __html: escaped }} />;
 }

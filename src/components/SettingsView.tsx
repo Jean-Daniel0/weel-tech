@@ -571,7 +571,7 @@ export default function SettingsView({ userProfile, onProfileUpdate }: SettingsV
                 </div>
                 <div>
                   <div className="flex items-baseline gap-1">
-                    <span className="text-2xl font-extrabold text-brand-dark">49 €</span>
+                    <span className="text-2xl font-extrabold text-brand-dark">49 $</span>
                     <span className="text-5xs text-slate-400 font-medium">/ mois</span>
                   </div>
                   <p className="text-5xs text-slate-400 mt-1">Idéal pour les créateurs sérieux et les entreprises en croissance.</p>
@@ -639,7 +639,7 @@ export default function SettingsView({ userProfile, onProfileUpdate }: SettingsV
                 </div>
                 <div>
                   <div className="flex items-baseline gap-1">
-                    <span className="text-2xl font-extrabold text-brand-dark">99 €</span>
+                    <span className="text-2xl font-extrabold text-brand-dark">99 $</span>
                     <span className="text-5xs text-slate-400 font-medium">/ mois</span>
                   </div>
                   <p className="text-5xs text-slate-400 mt-1">Pour les agences et les besoins de performance à grande échelle.</p>

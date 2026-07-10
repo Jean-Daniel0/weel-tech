@@ -849,7 +849,7 @@ if (session.success) {
           </div>
         </div>
       ) : (
-        <>
+        <div className="space-y-6">
           {/* NOTIFICATIONS CONTAINER */}
           <AnimatePresence>
             {errorMessage && (
@@ -1682,8 +1682,10 @@ if (session.success) {
             </motion.div>
           )}
 
-        </>
-      )}
+        </div>
+      </div>
+    </div>
+  )}
 
       {/* NEW API KEY MODAL */}
       {showNewKeyModal && (

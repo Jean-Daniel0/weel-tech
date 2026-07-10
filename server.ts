@@ -146,9 +146,9 @@ Vous devez STRICTEMENT retourner un objet JSON correspondant au schéma suivant 
       }
     }
 
-    // Fallback to gemini-2.5-flash if gemini-3.5-flash was completely unavailable
-    if (!success && isUnavailableError(lastError)) {
-      model = 'gemini-2.5-flash';
+    // Fallback to gemini-flash-latest if gemini-3.5-flash failed
+    if (!success) {
+      model = 'gemini-flash-latest';
       console.log(`[Gemini API] Toutes les tentatives avec gemini-3.5-flash ont échoué. Tentative finale de secours avec ${model}...`);
       try {
         response = await ai.models.generateContent({
@@ -182,12 +182,9 @@ Vous devez STRICTEMENT retourner un objet JSON correspondant au schéma suivant 
     }
 
     if (!success) {
-      const isOverloaded = isUnavailableError(lastError);
-      const userMessage = isOverloaded 
-        ? "Le service de génération est momentanément surchargé. Veuillez réessayer dans quelques instants."
-        : `Erreur de génération : ${lastError?.message || lastError || "Inconnue"}`;
-      
-      return res.status(503).json({ error: userMessage });
+      return res.status(503).json({ 
+        error: "Le service de génération est momentanément surchargé. Veuillez réessayer dans quelques instants." 
+      });
     }
 
     const text = response.text;

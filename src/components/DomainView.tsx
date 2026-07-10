@@ -311,7 +311,7 @@ export default function DomainView({ userProfile }: DomainViewProps) {
           return {
             domain: res.domain,
             available: alreadyOwned ? false : res.available,
-            price: alreadyOwned ? 'Déjà possédé' : `${res.finalPrice.toFixed(2)} €/an`,
+            price: alreadyOwned ? 'Déjà possédé' : `${res.finalPrice.toFixed(2)} $/an`,
             rawPrice: res.finalPrice,
             basePrice: res.basePrice,
             planUsed: res.planUsed,
@@ -907,7 +907,7 @@ export default function DomainView({ userProfile }: DomainViewProps) {
                   <div className="p-2 bg-white border border-slate-200 rounded-lg text-4xs text-slate-600 space-y-1 font-medium">
                     <div className="flex justify-between">
                       <span>Tarif de base Dynadot :</span>
-                      <span className="font-mono">{(availabilityResult.basePrice || 9.99).toFixed(2)} €</span>
+                      <span className="font-mono">{(availabilityResult.basePrice || 9.99).toFixed(2)} $</span>
                     </div>
                     <div className="flex justify-between text-brand-blue">
                       <span>Marge plan ({userProfile?.plan ? userProfile.plan.toUpperCase() : 'Aucun'}) :</span>
