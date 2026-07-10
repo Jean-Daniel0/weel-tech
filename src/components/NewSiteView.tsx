@@ -19,7 +19,19 @@ import {
   Terminal,
   ChevronDown,
   ChevronUp,
-  X
+  X,
+  Folder,
+  FileCode,
+  Image,
+  CreditCard,
+  Plus,
+  Upload,
+  Edit3,
+  Save,
+  BookOpen,
+  RefreshCw,
+  Eye,
+  Settings
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -47,6 +59,200 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
   const [prompt, setPrompt] = useState('');
   const [generatedHtml, setGeneratedHtml] = useState<string>('');
   const [isGenerating, setIsGenerating] = useState(false);
+
+  // New States for Editor & Asset Manager
+  const [selectedFile, setSelectedFile] = useState<string>('index.html');
+  const [isEditingCode, setIsEditingCode] = useState<boolean>(false);
+  const [editCodeValue, setEditCodeValue] = useState<string>('');
+  const [userApiKey, setUserApiKey] = useState<string>('vp_live_demo_weel_tech_7k29f');
+  const [customImageUrl, setCustomImageUrl] = useState<string>('');
+  
+  // Widget Builder States
+  const [widgetAmount, setWidgetAmount] = useState<number>(25);
+  const [widgetCurrency, setWidgetCurrency] = useState<string>('USD');
+  const [widgetProductName, setWidgetProductName] = useState<string>('Abonnement Premium');
+  const [widgetDesc, setWidgetDesc] = useState<string>('Accès complet à nos services');
+
+  // Curated premium images for the gallery
+  const imagePresets = {
+    resto: [
+      { url: 'https://images.unsplash.com/photo-1554118811-1e0d58224f24?auto=format&fit=crop&w=800&q=80', label: 'Ambiance Café Moderne' },
+      { url: 'https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?auto=format&fit=crop&w=800&q=80', label: 'Machine à Café Espresso' },
+      { url: 'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?auto=format&fit=crop&w=800&q=80', label: 'Tasse de Cappuccino' },
+      { url: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=800&q=80', label: 'Salle de Restaurant' }
+    ],
+    tech: [
+      { url: 'https://images.unsplash.com/photo-1519389950473-47ba0277781c?auto=format&fit=crop&w=800&q=80', label: 'Équipe de Développement' },
+      { url: 'https://images.unsplash.com/photo-1551434678-e076c223a692?auto=format&fit=crop&w=800&q=80', label: 'Réunion de Travail SaaS' },
+      { url: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=800&q=80', label: 'Tableau de Bord Analytics' },
+      { url: 'https://images.unsplash.com/photo-1507238691740-187a5b1d37b8?auto=format&fit=crop&w=800&q=80', label: 'Ordinateur Portable minimaliste' }
+    ],
+    art: [
+      { url: 'https://images.unsplash.com/photo-1453722751114-569253a5cf6b?auto=format&fit=crop&w=800&q=80', label: 'Objectif de Caméra Pro' },
+      { url: 'https://images.unsplash.com/photo-1542038784456-1ea8e935640e?auto=format&fit=crop&w=800&q=80', label: 'Séance Photo Extérieure' },
+      { url: 'https://images.unsplash.com/photo-1516035069371-29a1b244cc32?auto=format&fit=crop&w=800&q=80', label: 'Appareil Photo Vintage' },
+      { url: 'https://images.unsplash.com/photo-1492691527719-9d1e07e534b4?auto=format&fit=crop&w=800&q=80', label: 'Photographe de Nature' }
+    ],
+    shop: [
+      { url: 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=800&q=80', label: 'Boutique de Vêtements' },
+      { url: 'https://images.unsplash.com/photo-1472851294608-062f824d29cc?auto=format&fit=crop&w=800&q=80', label: 'Étagère de Produits Artisanaux' },
+      { url: 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?auto=format&fit=crop&w=800&q=80', label: 'Vêtements Minimalistes' },
+      { url: 'https://images.unsplash.com/photo-1483985988355-763728e1935b?auto=format&fit=crop&w=800&q=80', label: 'Sacs de Shopping Premium' }
+    ]
+  };
+
+  // Sync edit code value on tab switch or generation
+  useEffect(() => {
+    if (selectedFile === 'index.html') {
+      setEditCodeValue(generatedHtml);
+    } else if (selectedFile === 'styles.css') {
+      setEditCodeValue(extractStyleFromHtml(generatedHtml));
+    } else if (selectedFile === 'app.js') {
+      setEditCodeValue(extractScriptFromHtml(generatedHtml));
+    }
+  }, [selectedFile, generatedHtml]);
+
+  // Load API Key on mount
+  useEffect(() => {
+    if (userProfile?.id) {
+      supabase
+        .from('api_keys')
+        .select('key')
+        .eq('user_id', userProfile.id)
+        .eq('status', 'active')
+        .limit(1)
+        .then(({ data, error }) => {
+          if (!error && data && data.length > 0) {
+            setUserApiKey(data[0].key);
+          }
+        });
+    }
+  }, [userProfile]);
+
+  const handleSaveEditedCode = () => {
+    let updatedHtml = generatedHtml;
+    if (selectedFile === 'index.html') {
+      updatedHtml = editCodeValue;
+    } else if (selectedFile === 'styles.css') {
+      updatedHtml = injectStyleIntoHtml(generatedHtml, editCodeValue);
+    } else if (selectedFile === 'app.js') {
+      updatedHtml = injectScriptIntoHtml(generatedHtml, editCodeValue);
+    }
+    
+    setGeneratedHtml(updatedHtml);
+    setIsEditingCode(false);
+    
+    const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    setTerminalLogs(prev => [...prev, {
+      id: 'log-' + Math.random().toString(36).substring(2, 11),
+      text: `✏️ Modifications enregistrées avec succès dans ${selectedFile} !`,
+      type: 'success',
+      timestamp: timeStr
+    }]);
+  };
+
+  const replaceImageSrc = (oldSrc: string, newSrc: string) => {
+    const newHtml = generatedHtml.replaceAll(oldSrc, newSrc);
+    setGeneratedHtml(newHtml);
+    setEditCodeValue(newHtml);
+    
+    const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    setTerminalLogs(prev => [...prev, {
+      id: 'log-' + Math.random().toString(36).substring(2, 11),
+      text: "🖼️ Image mise à jour et remplacée avec succès !",
+      type: 'success',
+      timestamp: timeStr
+    }]);
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, oldImgSrc: string) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64Url = event.target?.result as string;
+      if (base64Url) {
+        replaceImageSrc(oldImgSrc, base64Url);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const autoInjectPayment = () => {
+    let html = generatedHtml;
+    
+    const scriptSrc = `<script src="${window.location.origin}/vendza-pay-widget.js"></script>`;
+    if (!html.includes('vendza-pay-widget.js')) {
+      if (html.includes('</body>')) {
+        html = html.replace('</body>', `  ${scriptSrc}\n</body>`);
+      } else {
+        html = html + `\n${scriptSrc}`;
+      }
+    }
+
+    const btnRegex = /<(button|a)\b([^>]*?)>([^<]*?(?:acheter|commander|payer|checkout|réserver|s'abonner|order|pay|buy|subscribe)[^<]*?)<\/\1>/gi;
+    
+    if (btnRegex.test(html)) {
+      const updatedHtml = html.replace(btnRegex, (match, tag, attrs, text) => {
+        const hasClass = /class=["']([^"']+)["']/i.exec(attrs);
+        let newAttrs = attrs;
+        
+        if (hasClass) {
+          newAttrs = attrs.replace(/class=["']([^"']+)["']/i, `class="${hasClass[1]} vendza-pay-button"`);
+        } else {
+          newAttrs += ' class="vendza-pay-button"';
+        }
+        
+        newAttrs += ` id="vendza-pay-button"`;
+        newAttrs += ` data-api-key="${userApiKey}"`;
+        newAttrs += ` data-amount="${widgetAmount}"`;
+        newAttrs += ` data-currency="${widgetCurrency}"`;
+        newAttrs += ` data-description="${widgetDesc.replace(/"/g, '&quot;')}"`;
+        
+        return `<${tag}${newAttrs}>${text}</${tag}>`;
+      });
+      
+      setGeneratedHtml(updatedHtml);
+      setEditCodeValue(updatedHtml);
+      
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      setTerminalLogs(prev => [...prev, {
+        id: 'log-' + Math.random().toString(36).substring(2, 11),
+        text: "⚡ Connexion automatique réussie ! Le premier bouton de paiement trouvé a été transformé en bouton Vendza:Pay sécurisé.",
+        type: 'success',
+        timestamp: timeStr
+      }]);
+    } else {
+      const widgetCode = `\n<div style="position: fixed; bottom: 20px; right: 20px; z-index: 9999;">
+  <div class="vendza-pay-button" 
+       id="vendza-pay-button"
+       data-api-key="${userApiKey}"
+       data-amount="${widgetAmount}"
+       data-currency="${widgetCurrency}"
+       data-description="${widgetDesc.replace(/"/g, '&quot;')}">
+  </div>
+</div>`;
+      
+      let updatedHtml = html;
+      if (html.includes('</body>')) {
+        updatedHtml = html.replace('</body>', `${widgetCode}\n</body>`);
+      } else {
+        updatedHtml += widgetCode;
+      }
+      
+      setGeneratedHtml(updatedHtml);
+      setEditCodeValue(updatedHtml);
+      
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      setTerminalLogs(prev => [...prev, {
+        id: 'log-' + Math.random().toString(36).substring(2, 11),
+        text: "⚡ Aucun bouton de paiement trouvé dans le design d'origine. Un bouton de paiement flottant a été injecté au bas de l'écran !",
+        type: 'info',
+        timestamp: timeStr
+      }]);
+    }
+  };
   
   // Abort controller and cancel/timeout state tracking
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -874,43 +1080,594 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
                 )}
 
                 {previewMode === 'code' && (
-                  // Custom highlighted source code block with copy button and line numbers
-                  <div className="w-full h-full flex flex-col relative bg-slate-900 text-slate-100 overflow-hidden">
-                    {/* Top action header */}
-                    <div className="bg-slate-800/80 border-b border-slate-700/50 px-4 py-2 flex items-center justify-between shrink-0">
-                      <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider">HTML5 Source • {generatedHtml.split('\n').length} lignes</span>
-                      <button
-                        type="button"
-                        onClick={handleCopyCode}
-                        className="flex items-center gap-1 px-2.5 py-1 bg-slate-700 hover:bg-slate-600 active:bg-slate-800 text-slate-200 hover:text-white rounded text-[10px] font-semibold font-mono transition cursor-pointer shadow-xs border border-slate-600/30"
-                      >
-                        {copied ? (
-                          <>
-                            <Check className="w-3 h-3 text-emerald-400" />
-                            <span>Copié !</span>
-                          </>
-                        ) : (
-                          <>
-                            <Copy className="w-3 h-3" />
-                            <span>Copier le code</span>
-                          </>
-                        )}
-                      </button>
+                  <div className="w-full h-full flex flex-col md:flex-row bg-[#0E131F] text-slate-100 overflow-hidden font-sans">
+                    
+                    {/* Left Sidebar: Virtual Project Explorer */}
+                    <div className="w-full md:w-60 bg-[#151B2B] border-r border-slate-800 flex flex-col shrink-0">
+                      
+                      {/* Sidebar Header */}
+                      <div className="p-3 border-b border-slate-800 flex items-center gap-2">
+                        <div className="w-6 h-6 rounded bg-[#2563EB]/10 border border-[#2563EB]/30 flex items-center justify-center">
+                          <Laptop className="w-3.5 h-3.5 text-blue-400" />
+                        </div>
+                        <div>
+                          <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider">Explorateur</h4>
+                          <p className="text-[9px] text-slate-500 font-mono">PROJET : weel-site-live</p>
+                        </div>
+                      </div>
+
+                      {/* File tree */}
+                      <div className="flex-1 overflow-y-auto p-2.5 space-y-4">
+                        
+                        {/* Folder 1: Source Files */}
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-1.5 px-2 py-1 text-slate-500 text-[10px] font-bold uppercase tracking-wider">
+                            <Folder className="w-3.5 h-3.5 text-amber-500/80 fill-amber-500/10" />
+                            <span>Fichiers Source</span>
+                          </div>
+                          
+                          {/* File index.html */}
+                          <button
+                            type="button"
+                            onClick={() => { setSelectedFile('index.html'); setIsEditingCode(false); }}
+                            className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs font-mono transition text-left cursor-pointer ${
+                              selectedFile === 'index.html'
+                                ? 'bg-[#2563EB]/15 text-blue-400 border border-blue-500/20 font-medium'
+                                : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200 border border-transparent'
+                            }`}
+                          >
+                            <span className="flex items-center gap-1.5">
+                              <FileCode className="w-3.5 h-3.5 text-blue-400" />
+                              index.html
+                            </span>
+                            <span className="text-[9px] text-slate-600 bg-slate-900 px-1 py-0.5 rounded border border-slate-800">Squelette</span>
+                          </button>
+
+                          {/* File styles.css */}
+                          <button
+                            type="button"
+                            onClick={() => { setSelectedFile('styles.css'); setIsEditingCode(false); }}
+                            className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs font-mono transition text-left cursor-pointer ${
+                              selectedFile === 'styles.css'
+                                ? 'bg-[#2563EB]/15 text-blue-400 border border-blue-500/20 font-medium'
+                                : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200 border border-transparent'
+                            }`}
+                          >
+                            <span className="flex items-center gap-1.5">
+                              <FileCode className="w-3.5 h-3.5 text-teal-400" />
+                              styles.css
+                            </span>
+                            <span className="text-[9px] text-slate-600 bg-slate-900 px-1 py-0.5 rounded border border-slate-800">Styles</span>
+                          </button>
+
+                          {/* File app.js */}
+                          <button
+                            type="button"
+                            onClick={() => { setSelectedFile('app.js'); setIsEditingCode(false); }}
+                            className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs font-mono transition text-left cursor-pointer ${
+                              selectedFile === 'app.js'
+                                ? 'bg-[#2563EB]/15 text-blue-400 border border-blue-500/20 font-medium'
+                                : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200 border border-transparent'
+                            }`}
+                          >
+                            <span className="flex items-center gap-1.5">
+                              <FileCode className="w-3.5 h-3.5 text-yellow-400" />
+                              app.js
+                            </span>
+                            <span className="text-[9px] text-slate-600 bg-slate-900 px-1 py-0.5 rounded border border-slate-800">JS Code</span>
+                          </button>
+                        </div>
+
+                        {/* Folder 2: Media Management */}
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-1.5 px-2 py-1 text-slate-500 text-[10px] font-bold uppercase tracking-wider">
+                            <Folder className="w-3.5 h-3.5 text-indigo-500/80 fill-indigo-500/10" />
+                            <span>Actifs Médias</span>
+                          </div>
+                          
+                          {/* Media Gallery file */}
+                          <button
+                            type="button"
+                            onClick={() => { setSelectedFile('images.png'); }}
+                            className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs font-mono transition text-left cursor-pointer ${
+                              selectedFile === 'images.png'
+                                ? 'bg-[#2563EB]/15 text-blue-400 border border-blue-500/20 font-medium'
+                                : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200 border border-transparent'
+                            }`}
+                          >
+                            <span className="flex items-center gap-1.5">
+                              <Image className="w-3.5 h-3.5 text-indigo-400" />
+                              images.png
+                            </span>
+                            <span className="text-[9px] text-indigo-400 bg-indigo-500/10 px-1 py-0.5 rounded border border-indigo-500/20 font-semibold font-sans">
+                              {getImgSources(generatedHtml).length} im.
+                            </span>
+                          </button>
+                        </div>
+
+                        {/* Folder 3: Monetization */}
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-1.5 px-2 py-1 text-slate-500 text-[10px] font-bold uppercase tracking-wider">
+                            <Folder className="w-3.5 h-3.5 text-emerald-500/80 fill-emerald-500/10" />
+                            <span>Monétisation</span>
+                          </div>
+                          
+                          {/* Vendza Pay file */}
+                          <button
+                            type="button"
+                            onClick={() => { setSelectedFile('vendza-pay.html'); }}
+                            className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs font-mono transition text-left cursor-pointer ${
+                              selectedFile === 'vendza-pay.html'
+                                ? 'bg-[#2563EB]/15 text-blue-400 border border-blue-500/20 font-medium'
+                                : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200 border border-transparent'
+                            }`}
+                          >
+                            <span className="flex items-center gap-1.5">
+                              <CreditCard className="w-3.5 h-3.5 text-emerald-400" />
+                              vendza-pay.html
+                            </span>
+                            <span className="text-[9px] text-emerald-400 bg-emerald-500/10 px-1 py-0.5 rounded border border-emerald-500/20 font-semibold font-sans">Connecté</span>
+                          </button>
+                        </div>
+
+                      </div>
+
+                      {/* Connection status footer */}
+                      <div className="p-3 bg-slate-900/60 border-t border-slate-800 text-[10px] text-slate-400 space-y-1">
+                        <div className="flex items-center gap-1.5 text-emerald-400 font-semibold">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                          <span>Serveur Cloud Actif</span>
+                        </div>
+                        <p className="text-[9px] text-slate-500 font-mono leading-relaxed truncate">Sync : weel-tech.app</p>
+                      </div>
+
                     </div>
 
-                    {/* Scrollable container with line numbers */}
-                    <div className="flex-1 overflow-auto font-mono text-[11px] leading-normal py-3 select-text bg-slate-950">
-                      {generatedHtml.split('\n').map((line, idx) => (
-                        <div key={idx} className="flex hover:bg-slate-850/30 w-full px-4">
-                          <span className="w-9 text-right text-slate-500 select-none pr-3 border-r border-slate-800 shrink-0 font-normal">
-                            {idx + 1}
-                          </span>
-                          <span className="pl-4 font-normal text-slate-300 whitespace-pre overflow-x-auto block flex-1">
-                            {line.trim() === '' ? ' ' : highlightHtmlLine(line)}
+                    {/* Right Pane: Code Editor or Module Views */}
+                    <div className="flex-1 min-w-0 flex flex-col bg-[#0A0D16]">
+                      
+                      {/* Sub-Header bar */}
+                      <div className="bg-[#111625] border-b border-slate-800 px-4 py-2 flex items-center justify-between shrink-0">
+                        <div className="flex items-center gap-2">
+                          <FileCode className="w-4 h-4 text-slate-400" />
+                          <span className="text-xs font-mono font-medium text-slate-300">
+                            weel-site-live / {selectedFile}
                           </span>
                         </div>
-                      ))}
+
+                        {/* Actions for source code files */}
+                        {(selectedFile === 'index.html' || selectedFile === 'styles.css' || selectedFile === 'app.js') && (
+                          <div className="flex items-center gap-2">
+                            {/* Read/Write mode toggles */}
+                            <div className="bg-[#0A0D16] border border-slate-800 p-0.5 rounded-md flex">
+                              <button
+                                type="button"
+                                onClick={() => setIsEditingCode(false)}
+                                className={`px-2.5 py-1 rounded text-[10px] font-semibold transition cursor-pointer ${
+                                  !isEditingCode ? 'bg-slate-800 text-white shadow-xs' : 'text-slate-400 hover:text-slate-200'
+                                }`}
+                              >
+                                <Eye className="w-3 h-3 inline mr-1" />
+                                Mode Lecture
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (selectedFile === 'index.html') setEditCodeValue(generatedHtml);
+                                  else if (selectedFile === 'styles.css') setEditCodeValue(extractStyleFromHtml(generatedHtml));
+                                  else if (selectedFile === 'app.js') setEditCodeValue(extractScriptFromHtml(generatedHtml));
+                                  setIsEditingCode(true);
+                                }}
+                                className={`px-2.5 py-1 rounded text-[10px] font-semibold transition cursor-pointer ${
+                                  isEditingCode ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-400 hover:text-slate-200'
+                                }`}
+                              >
+                                <Edit3 className="w-3 h-3 inline mr-1" />
+                                Mode Édition
+                              </button>
+                            </div>
+
+                            {/* Standard Copy button */}
+                            {!isEditingCode ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  let txt = '';
+                                  if (selectedFile === 'index.html') txt = generatedHtml;
+                                  else if (selectedFile === 'styles.css') txt = extractStyleFromHtml(generatedHtml);
+                                  else if (selectedFile === 'app.js') txt = extractScriptFromHtml(generatedHtml);
+                                  navigator.clipboard.writeText(txt);
+                                  setCopied(true);
+                                  setTimeout(() => setCopied(false), 2000);
+                                }}
+                                className="flex items-center gap-1 px-2.5 py-1 bg-slate-800 hover:bg-slate-700 active:bg-slate-900 text-slate-200 hover:text-white rounded text-[10px] font-mono transition cursor-pointer shadow-xs border border-slate-700/30"
+                              >
+                                {copied ? (
+                                  <>
+                                    <Check className="w-3 h-3 text-emerald-400" />
+                                    <span>Copié !</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="w-3 h-3" />
+                                    <span>Copier</span>
+                                  </>
+                                )}
+                              </button>
+                            ) : (
+                              /* Save / Cancel buttons in write mode */
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => setIsEditingCode(false)}
+                                  className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[10px] font-semibold transition cursor-pointer"
+                                >
+                                  Annuler
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={handleSaveEditedCode}
+                                  className="flex items-center gap-1 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[10px] font-semibold transition cursor-pointer shadow-xs"
+                                >
+                                  <Save className="w-3 h-3" />
+                                  Enregistrer
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Content panel */}
+                      <div className="flex-1 overflow-auto">
+                        
+                        {/* VIEW 1: SOURCE FILES (index.html, styles.css, app.js) */}
+                        {(selectedFile === 'index.html' || selectedFile === 'styles.css' || selectedFile === 'app.js') && (
+                          <div className="w-full h-full flex flex-col min-h-0 bg-slate-950">
+                            {isEditingCode ? (
+                              /* WRITE MODE: Textarea Editor */
+                              <div className="flex-1 flex flex-col p-4 relative h-full">
+                                <div className="text-[10px] text-slate-400 pb-2 flex justify-between items-center shrink-0">
+                                  <span>Modifications en temps réel sur <code>{selectedFile}</code>. Utilisez Ctrl+S ou cliquez sur "Enregistrer" pour appliquer.</span>
+                                  <span className="font-mono text-emerald-400 font-semibold">Mode d'écriture libre actif</span>
+                                </div>
+                                <textarea
+                                  value={editCodeValue}
+                                  onChange={(e) => setEditCodeValue(e.target.value)}
+                                  className="flex-1 w-full bg-[#080B12] text-[#E2E8F0] font-mono text-xs p-4 rounded-lg border border-slate-800 focus:outline-none focus:border-blue-500/50 resize-none leading-relaxed h-[380px] max-h-full"
+                                  placeholder={`Entrez votre code ${selectedFile} ici...`}
+                                  spellCheck={false}
+                                />
+                              </div>
+                            ) : (
+                              /* READ MODE: Pretty Syntax Highlight */
+                              <div className="flex-1 overflow-auto font-mono text-[11px] leading-normal py-3 select-text bg-slate-950">
+                                {(selectedFile === 'index.html' ? generatedHtml : selectedFile === 'styles.css' ? extractStyleFromHtml(generatedHtml) : extractScriptFromHtml(generatedHtml))
+                                  .split('\n')
+                                  .map((line, idx) => (
+                                    <div key={idx} className="flex hover:bg-slate-850/30 w-full px-4">
+                                      <span className="w-9 text-right text-slate-500 select-none pr-3 border-r border-slate-800 shrink-0 font-normal">
+                                        {idx + 1}
+                                      </span>
+                                      <span className="pl-4 font-normal text-slate-300 whitespace-pre overflow-x-auto block flex-1">
+                                        {line.trim() === '' ? ' ' : highlightHtmlLine(line)}
+                                      </span>
+                                    </div>
+                                  ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* VIEW 2: MEDIA GALLERY MANAGER (images.png) */}
+                        {selectedFile === 'images.png' && (
+                          <div className="p-6 space-y-6 max-w-4xl">
+                            <div>
+                              <h2 className="text-lg font-bold font-display text-white tracking-tight flex items-center gap-2">
+                                <Image className="w-5 h-5 text-indigo-400" />
+                                Bibliothèque d'Images & Remplacement
+                              </h2>
+                              <p className="text-xs text-slate-400 mt-1">
+                                Nous avons scanné le code source de votre site web pour y découvrir toutes les balises d'images actives. Vous pouvez uploader vos propres photos ou en choisir parmi nos presets Unsplash de haute qualité pour les remplacer instantanément dans le code.
+                              </p>
+                            </div>
+
+                            {/* Main List of Images detected in the HTML */}
+                            <div className="space-y-4">
+                              <h3 className="text-xs font-semibold uppercase text-slate-400 tracking-wider">Images Détectées dans le site ({getImgSources(generatedHtml).length})</h3>
+                              
+                              {getImgSources(generatedHtml).length === 0 ? (
+                                <div className="p-8 border border-dashed border-slate-800 rounded-xl text-center text-slate-400">
+                                  <Image className="w-8 h-8 text-slate-600 mx-auto mb-2.5" />
+                                  <p className="text-xs">Aucune image active détectée dans le squelette de votre site web.</p>
+                                </div>
+                              ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                  {getImgSources(generatedHtml).map((src, idx) => (
+                                    <div key={idx} className="bg-[#131929] border border-slate-800 rounded-xl p-4 flex gap-4 items-start shadow-xs">
+                                      {/* Image Thumbnail */}
+                                      <div className="w-20 h-20 bg-slate-900 border border-slate-800 rounded-lg overflow-hidden shrink-0 flex items-center justify-center relative group">
+                                        <img 
+                                          src={src} 
+                                          alt={`Detected ${idx}`} 
+                                          className="w-full h-full object-cover" 
+                                          referrerPolicy="no-referrer"
+                                          onError={(e) => {
+                                            (e.target as HTMLElement).style.display = 'none';
+                                          }}
+                                        />
+                                        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-[9px] text-slate-300">
+                                          N° {idx + 1}
+                                        </div>
+                                      </div>
+
+                                      {/* Replacement controls */}
+                                      <div className="flex-1 min-w-0 space-y-2">
+                                        <div className="flex justify-between items-center">
+                                          <span className="text-[10px] font-semibold text-indigo-400">Balise &lt;img&gt; #{idx+1}</span>
+                                          <span className="text-[9px] text-slate-500 font-mono truncate max-w-[150px]" title={src}>
+                                            {src.substring(0, 30)}...
+                                          </span>
+                                        </div>
+
+                                        {/* Direct File Upload */}
+                                        <div className="flex gap-2">
+                                          <label className="flex-1 py-1 px-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded text-[10px] font-semibold transition cursor-pointer text-center border border-slate-700/50 flex items-center justify-center gap-1.5">
+                                            <Upload className="w-3 h-3" />
+                                            Uploader un fichier
+                                            <input 
+                                              type="file" 
+                                              accept="image/*" 
+                                              onChange={(e) => handleImageUpload(e, src)} 
+                                              className="hidden" 
+                                            />
+                                          </label>
+                                          
+                                          {/* Manual URL field */}
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              const newUrl = prompt("Saisissez l'adresse URL complète de l'image de remplacement (ex: https://example.com/photo.jpg) :");
+                                              if (newUrl && newUrl.trim() !== '') {
+                                                replaceImageSrc(src, newUrl.trim());
+                                              }
+                                            }}
+                                            className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-[10px] font-semibold transition cursor-pointer border border-slate-700/50"
+                                          >
+                                            Coller URL
+                                          </button>
+                                        </div>
+
+                                        {/* Quick select presets based on templates */}
+                                        <div className="pt-1.5 border-t border-slate-800/80">
+                                          <p className="text-[9px] text-slate-400 mb-1">Remplacement rapide par catégorie :</p>
+                                          <div className="flex flex-wrap gap-1">
+                                            <button
+                                              type="button"
+                                              onClick={() => replaceImageSrc(src, imagePresets.resto[Math.floor(Math.random() * 4)].url)}
+                                              className="text-[8px] bg-slate-900 hover:bg-[#1E293B] text-slate-300 px-1.5 py-0.5 rounded border border-slate-800 cursor-pointer"
+                                            >
+                                              ☕ Café/Resto
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => replaceImageSrc(src, imagePresets.tech[Math.floor(Math.random() * 4)].url)}
+                                              className="text-[8px] bg-slate-900 hover:bg-[#1E293B] text-slate-300 px-1.5 py-0.5 rounded border border-slate-800 cursor-pointer"
+                                            >
+                                              💻 SaaS/Tech
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => replaceImageSrc(src, imagePresets.art[Math.floor(Math.random() * 4)].url)}
+                                              className="text-[8px] bg-slate-900 hover:bg-[#1E293B] text-slate-300 px-1.5 py-0.5 rounded border border-slate-800 cursor-pointer"
+                                            >
+                                              📸 Art/Portrait
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => replaceImageSrc(src, imagePresets.shop[Math.floor(Math.random() * 4)].url)}
+                                              className="text-[8px] bg-slate-900 hover:bg-[#1E293B] text-slate-300 px-1.5 py-0.5 rounded border border-slate-800 cursor-pointer"
+                                            >
+                                              🛍️ Boutique
+                                            </button>
+                                          </div>
+                                        </div>
+
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Preset library explorer */}
+                            <div className="pt-4 border-t border-slate-800 space-y-3">
+                              <h3 className="text-xs font-semibold text-slate-300">Galerie de Modèles Unsplash Recommandés</h3>
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
+                                {[...imagePresets.resto, ...imagePresets.tech].slice(0, 4).map((p, pIdx) => (
+                                  <div key={pIdx} className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden flex flex-col group">
+                                    <div className="h-20 w-full overflow-hidden relative">
+                                      <img src={p.url} alt={p.label} className="w-full h-full object-cover group-hover:scale-105 transition duration-300" referrerPolicy="no-referrer" />
+                                    </div>
+                                    <div className="p-2 space-y-1">
+                                      <p className="text-[9px] text-slate-300 truncate font-semibold">{p.label}</p>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          navigator.clipboard.writeText(p.url);
+                                          alert("URL copiée ! Vous pouvez la coller dans n'importe quel attribut d'image de votre code.");
+                                        }}
+                                        className="w-full text-center py-0.5 bg-slate-800 hover:bg-slate-750 text-slate-300 hover:text-white text-[8px] rounded transition cursor-pointer font-medium"
+                                      >
+                                        Copier l'URL
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+
+                          </div>
+                        )}
+
+                        {/* VIEW 3: MONETIZATION / VENDZA:PAY INTEGRATION (vendza-pay.html) */}
+                        {selectedFile === 'vendza-pay.html' && (
+                          <div className="p-6 space-y-6 max-w-4xl text-slate-300">
+                            
+                            {/* Section Header */}
+                            <div>
+                              <h2 className="text-lg font-bold font-display text-white tracking-tight flex items-center gap-2">
+                                <CreditCard className="w-5 h-5 text-emerald-400 animate-pulse" />
+                                Connexion Automatique des Méthodes de Paiement
+                              </h2>
+                              <p className="text-xs text-slate-400 mt-1">
+                                Weel-Tech intègre l'infrastructure financière unifiée <strong>Vendza:Pay</strong>. Ce module vous permet d'accepter automatiquement les paiements en Haïti par <strong>MonCash (Gourdes)</strong> et à l'international par <strong>Stripe (USD / Cartes de crédit)</strong> sur vos sites web générés.
+                              </p>
+                            </div>
+
+                            {/* Direct Connect Alert Box */}
+                            <div className="bg-[#102A24] border border-emerald-500/30 rounded-xl p-4 text-xs flex gap-3.5 items-start">
+                              <Check className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+                              <div className="space-y-1 leading-relaxed">
+                                <p className="font-bold text-emerald-300">Intégration d'API Automatisée</p>
+                                <p className="text-slate-300">
+                                  Votre clé secrète Vendza:Pay active (<code className="font-mono text-emerald-400">{userApiKey.substring(0, 12)}...</code>) a été détectée et est automatiquement configurée pour ce site. Les boutons de commande d'origine du code seront configurés avec vos identifiants pour que les fonds arrivent directement sur votre Hub de paiement Weel-Tech !
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+                              
+                              {/* Left column: Button Config Wizard */}
+                              <div className="bg-[#121826] border border-slate-800 rounded-xl p-5 space-y-4">
+                                <h3 className="text-xs font-bold uppercase text-slate-300 tracking-wider flex items-center gap-1">
+                                  <Settings className="w-3.5 h-3.5 text-blue-400" />
+                                  Générateur de Bouton de Paiement
+                                </h3>
+                                
+                                <div className="space-y-3">
+                                  {/* Product Name */}
+                                  <div>
+                                    <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Nom du produit / service</label>
+                                    <input 
+                                      type="text" 
+                                      value={widgetProductName} 
+                                      onChange={(e) => setWidgetProductName(e.target.value)}
+                                      className="w-full bg-[#080B12] text-slate-200 text-xs px-3 py-2 rounded-lg border border-slate-800 focus:outline-none focus:border-blue-500"
+                                      placeholder="Ex: Café Robusta Premium"
+                                    />
+                                  </div>
+
+                                  {/* Description */}
+                                  <div>
+                                    <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Description courte</label>
+                                    <input 
+                                      type="text" 
+                                      value={widgetDesc} 
+                                      onChange={(e) => setWidgetDesc(e.target.value)}
+                                      className="w-full bg-[#080B12] text-slate-200 text-xs px-3 py-2 rounded-lg border border-slate-800 focus:outline-none focus:border-blue-500"
+                                      placeholder="Ex: Paquet de 500g, torréfié localement"
+                                    />
+                                  </div>
+
+                                  {/* Price and currency */}
+                                  <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                      <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Montant</label>
+                                      <input 
+                                        type="number" 
+                                        value={widgetAmount} 
+                                        onChange={(e) => setWidgetAmount(Number(e.target.value))}
+                                        className="w-full bg-[#080B12] text-slate-200 text-xs px-3 py-2 rounded-lg border border-slate-800 focus:outline-none focus:border-blue-500"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">Devise</label>
+                                      <select
+                                        value={widgetCurrency}
+                                        onChange={(e) => setWidgetCurrency(e.target.value)}
+                                        className="w-full bg-[#080B12] text-slate-200 text-xs px-3 py-2 rounded-lg border border-slate-800 focus:outline-none focus:border-blue-500"
+                                      >
+                                        <option value="USD">USD ($) - Stripe</option>
+                                        <option value="HTG">HTG (Gourdes) - MonCash</option>
+                                      </select>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Instant Injection Magic button! */}
+                                <button
+                                  type="button"
+                                  onClick={autoInjectPayment}
+                                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-bold rounded-lg text-xs transition cursor-pointer flex justify-center items-center gap-1.5 shadow-md shadow-emerald-950/25"
+                                >
+                                  <RefreshCw className="w-3.5 h-3.5 animate-spin-slow" />
+                                  ⚡ Connecter automatiquement au site
+                                </button>
+                                
+                                <p className="text-[9px] text-slate-500 leading-relaxed text-center">
+                                  Ce bouton va scanner le code HTML de votre site, repérer les boutons d'appel à l'action existants (ex: "Acheter maintenant") et les connecter automatiquement à votre module de paiement.
+                                </p>
+                              </div>
+
+                              {/* Right column: Explanations and documentation */}
+                              <div className="space-y-4 text-xs">
+                                <div className="bg-[#121826] border border-slate-800 rounded-xl p-5 space-y-3.5">
+                                  <h3 className="text-xs font-bold uppercase text-slate-300 tracking-wider flex items-center gap-1">
+                                    <BookOpen className="w-3.5 h-3.5 text-blue-400" />
+                                    Comment ça marche ?
+                                  </h3>
+                                  
+                                  <div className="space-y-3 text-[11px] text-slate-400 leading-relaxed">
+                                    <div className="flex gap-2">
+                                      <span className="w-4 h-4 bg-blue-600/20 text-blue-400 rounded-full flex items-center justify-center text-[9px] font-bold shrink-0 mt-0.5">1</span>
+                                      <p>Le widget sécurisé unifié de <code>vendza-pay-widget.js</code> est chargé de manière autonome en arrière-plan.</p>
+                                    </div>
+                                    <div className="flex gap-2">
+                                      <span className="w-4 h-4 bg-blue-600/20 text-blue-400 rounded-full flex items-center justify-center text-[9px] font-bold shrink-0 mt-0.5">2</span>
+                                      <p>Il identifie les éléments portant l'identifiant <code>id="vendza-pay-button"</code> ou la classe <code>.vendza-pay-button</code> et y injecte le bouton de paiement universel.</p>
+                                    </div>
+                                    <div className="flex gap-2">
+                                      <span className="w-4 h-4 bg-blue-600/20 text-blue-400 rounded-full flex items-center justify-center text-[9px] font-bold shrink-0 mt-0.5">3</span>
+                                      <p>Lorsque vos clients cliquent dessus, ils choisissent leur mode de paiement et règlent l'achat. L'argent est synchronisé en temps réel sur votre tableau de bord financier.</p>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="bg-[#121826] border border-slate-800 rounded-xl p-5 space-y-3">
+                                  <h3 className="text-xs font-bold text-slate-300">Code Source d'Intégration Généré</h3>
+                                  <div className="bg-slate-950 p-3 rounded-lg border border-slate-850 font-mono text-[9px] text-slate-300 overflow-x-auto whitespace-pre">
+{`<script src="${window.location.origin}/vendza-pay-widget.js"></script>
+
+<div class="vendza-pay-button"
+     data-api-key="${userApiKey}"
+     data-amount="${widgetAmount}"
+     data-currency="${widgetCurrency}"
+     data-description="${widgetProductName.replace(/"/g, '&quot;')}">
+</div>`}
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const code = `<script src="${window.location.origin}/vendza-pay-widget.js"></script>\n\n<div class="vendza-pay-button"\n     data-api-key="${userApiKey}"\n     data-amount="${widgetAmount}"\n     data-currency="${widgetCurrency}"\n     data-description="${widgetProductName}">\n</div>`;
+                                      navigator.clipboard.writeText(code);
+                                      alert("Code d'intégration copié !");
+                                    }}
+                                    className="w-full text-center py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] rounded transition cursor-pointer font-semibold"
+                                  >
+                                    Copier le code d'intégration
+                                  </button>
+                                </div>
+
+                              </div>
+                            </div>
+
+                          </div>
+                        )}
+
+                      </div>
                     </div>
+
                   </div>
                 )}
               </>
@@ -1223,4 +1980,82 @@ function highlightHtmlLine(line: string) {
   escaped = escaped.replace(/([a-zA-Z0-9-]+)=(&#x27;.*?&#x27;)/g, '<span class="text-purple-400">$1</span>=<span class="text-emerald-400">$2</span>');
 
   return <span dangerouslySetInnerHTML={{ __html: escaped }} />;
+}
+
+// Extract Style Block from HTML
+function extractStyleFromHtml(html: string): string {
+  if (!html) return '';
+  const match = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
+  return match ? match[1].trim() : '/* Aucun bloc <style> personnalisé détecté dans ce site. Les classes Tailwind CSS sont utilisées directement. */';
+}
+
+// Inject Style Block back into HTML
+function injectStyleIntoHtml(html: string, newStyle: string): string {
+  if (!html) return html;
+  const styleRegex = /<style[^>]*>([\s\S]*?)<\/style>/i;
+  if (styleRegex.test(html)) {
+    return html.replace(styleRegex, `<style>\n${newStyle}\n  </style>`);
+  } else {
+    // If not found, inject in head
+    if (html.includes('</head>')) {
+      return html.replace('</head>', `  <style>\n${newStyle}\n  </style>\n</head>`);
+    }
+  }
+  return html;
+}
+
+// Extract Script Block from HTML
+function extractScriptFromHtml(html: string): string {
+  if (!html) return '';
+  // Match longest custom script (not referencing external src)
+  const scriptRegex = /<script\b(?!.*?src=)[^>]*>([\s\S]*?)<\/script>/gi;
+  let match;
+  let longestScript = '';
+  while ((match = scriptRegex.exec(html)) !== null) {
+    if (match[1].length > longestScript.length) {
+      longestScript = match[1];
+    }
+  }
+  return longestScript || '/* Aucun script d\'interactivité JS personnalisé détecté. Vous pouvez en écrire ici pour animer votre site ou connecter des APIs ! */';
+}
+
+// Inject Script Block back into HTML
+function injectScriptIntoHtml(html: string, newScript: string): string {
+  if (!html) return html;
+  const scriptRegex = /<script\b(?!.*?src=)[^>]*>([\s\S]*?)<\/script>/gi;
+  const matches = [...html.matchAll(scriptRegex)];
+  
+  if (matches.length > 0) {
+    let targetMatch = matches[0];
+    let maxLen = 0;
+    for (const m of matches) {
+      if (m[1].length > maxLen) {
+        maxLen = m[1].length;
+        targetMatch = m;
+      }
+    }
+    const fullMatchText = targetMatch[0];
+    const headerEndIndex = fullMatchText.indexOf(targetMatch[1]);
+    const header = headerEndIndex !== -1 ? fullMatchText.substring(0, headerEndIndex) : '<script>';
+    return html.replace(fullMatchText, `${header}\n${newScript}\n  </script>`);
+  } else {
+    if (html.includes('</body>')) {
+      return html.replace('</body>', `  <script>\n${newScript}\n  </script>\n</body>`);
+    }
+  }
+  return html;
+}
+
+// Helper to extract image sources
+function getImgSources(html: string): string[] {
+  if (!html) return [];
+  const sources: string[] = [];
+  const regex = /<img[^>]+src=["']([^"']+)["'][^>]*>/gi;
+  let match;
+  while ((match = regex.exec(html)) !== null) {
+    if (match[1] && !sources.includes(match[1]) && !match[1].startsWith('data:image/svg+xml')) {
+      sources.push(match[1]);
+    }
+  }
+  return sources;
 }
