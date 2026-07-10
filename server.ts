@@ -74,6 +74,7 @@ Le site généré doit respecter scrupuleusement les exigences suivantes :
 6. Contenu réel & Français : Pas de 'Lorem Ipsum'. Écrivez des accroches marketing et des textes percutants en français adaptés au domaine.
 7. Interactivité & Micro-interactions : Ajoutez du code JavaScript simple (dans une balise <script>) pour animer ou rendre fonctionnel des éléments (comme un menu mobile burger, des filtres de galerie d'images, des accordéons de FAQ, des onglets, un panier d'achat simple avec calcul de total, ou un formulaire de contact fonctionnel affichant un superbe message de succès lors de la soumission sans recharger la page).
 8. Si l'utilisateur demande une modification d'un site existant (déjà présente dans l'historique), reprenez le code existant et appliquez les modifications demandées avec soin, en conservant le reste de la structure intacte.
+9. IMPORTANT - FORMATAGE DU CODE : Le code HTML, CSS et JavaScript généré ne doit JAMAIS être minifié ni condensé sur une seule ligne. Vous devez obligatoirement retourner un code aéré, lisible, structuré avec des retours à la ligne fréquents (après chaque balise ouvrante/fermante de section, de div, d'entête, etc.) et une indentation propre de 2 ou 4 espaces. Chaque section majeure de la page doit être clairement séparée par des commentaires HTML explicatifs.
 
 Vous devez STRICTEMENT retourner un objet JSON correspondant au schéma suivant :
 - message : Résumé conversationnel court (en français, 2-3 phrases) des choix esthétiques, des sections et de l'interactivité ajoutée ou modifiée.

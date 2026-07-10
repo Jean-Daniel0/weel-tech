@@ -59,6 +59,7 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
   const [prompt, setPrompt] = useState('');
   const [generatedHtml, setGeneratedHtml] = useState<string>('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [currentSiteId, setCurrentSiteId] = useState<string | null>(null);
 
   // New States for Editor & Asset Manager
   const [selectedFile, setSelectedFile] = useState<string>('index.html');
@@ -129,7 +130,40 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
     }
   }, [userProfile]);
 
-  const handleSaveEditedCode = () => {
+  const saveManualModification = async (htmlCode: string, changeDescription: string) => {
+    if (!currentSiteId || !userProfile) return;
+    try {
+      // 1. Update site storage_path in table sites
+      await supabase
+        .from('sites')
+        .update({
+          storage_path: htmlCode,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', currentSiteId);
+        
+      // 2. Insert record in table generations
+      await supabase
+        .from('generations')
+        .insert({
+          site_id: currentSiteId,
+          user_id: userProfile.id,
+          prompt: changeDescription,
+          tokens_input: Math.floor(changeDescription.length * 1.5),
+          tokens_output: Math.floor(htmlCode.length / 4),
+          estimated_cost: 0.001
+        });
+        
+      // Cache locally
+      if (siteDomain) {
+        localStorage.setItem(`weel_tech_site_html_${siteDomain}`, htmlCode);
+      }
+    } catch (err) {
+      console.error("Error saving manual modification:", err);
+    }
+  };
+
+  const handleSaveEditedCode = async () => {
     let updatedHtml = generatedHtml;
     if (selectedFile === 'index.html') {
       updatedHtml = editCodeValue;
@@ -139,8 +173,12 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
       updatedHtml = injectScriptIntoHtml(generatedHtml, editCodeValue);
     }
     
-    setGeneratedHtml(updatedHtml);
+    const formattedHtml = autoFormatSingleLineHtml(updatedHtml);
+    setGeneratedHtml(formattedHtml);
     setIsEditingCode(false);
+
+    const changeDesc = `Modification manuelle du code (${selectedFile})`;
+    await saveManualModification(formattedHtml, changeDesc);
     
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     setTerminalLogs(prev => [...prev, {
@@ -151,10 +189,14 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
     }]);
   };
 
-  const replaceImageSrc = (oldSrc: string, newSrc: string) => {
+  const replaceImageSrc = async (oldSrc: string, newSrc: string) => {
     const newHtml = generatedHtml.replaceAll(oldSrc, newSrc);
-    setGeneratedHtml(newHtml);
-    setEditCodeValue(newHtml);
+    const formattedHtml = autoFormatSingleLineHtml(newHtml);
+    setGeneratedHtml(formattedHtml);
+    setEditCodeValue(formattedHtml);
+
+    const changeDesc = `Remplacement d'image : source mise à jour`;
+    await saveManualModification(formattedHtml, changeDesc);
     
     const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     setTerminalLogs(prev => [...prev, {
@@ -179,7 +221,7 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
     reader.readAsDataURL(file);
   };
 
-  const autoInjectPayment = () => {
+  const autoInjectPayment = async () => {
     let html = generatedHtml;
     
     const scriptSrc = `<script src="${window.location.origin}/vendza-pay-widget.js"></script>`;
@@ -192,9 +234,11 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
     }
 
     const btnRegex = /<(button|a)\b([^>]*?)>([^<]*?(?:acheter|commander|payer|checkout|réserver|s'abonner|order|pay|buy|subscribe)[^<]*?)<\/\1>/gi;
+    let updatedHtml = html;
+    let injected = false;
     
     if (btnRegex.test(html)) {
-      const updatedHtml = html.replace(btnRegex, (match, tag, attrs, text) => {
+      updatedHtml = html.replace(btnRegex, (match, tag, attrs, text) => {
         const hasClass = /class=["']([^"']+)["']/i.exec(attrs);
         let newAttrs = attrs;
         
@@ -213,8 +257,11 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
         return `<${tag}${newAttrs}>${text}</${tag}>`;
       });
       
-      setGeneratedHtml(updatedHtml);
-      setEditCodeValue(updatedHtml);
+      const formatted = autoFormatSingleLineHtml(updatedHtml);
+      setGeneratedHtml(formatted);
+      setEditCodeValue(formatted);
+      updatedHtml = formatted;
+      injected = true;
       
       const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       setTerminalLogs(prev => [...prev, {
@@ -234,15 +281,18 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
   </div>
 </div>`;
       
-      let updatedHtml = html;
+      let finalHtml = html;
       if (html.includes('</body>')) {
-        updatedHtml = html.replace('</body>', `${widgetCode}\n</body>`);
+        finalHtml = html.replace('</body>', `${widgetCode}\n</body>`);
       } else {
-        updatedHtml += widgetCode;
+        finalHtml += widgetCode;
       }
       
-      setGeneratedHtml(updatedHtml);
-      setEditCodeValue(updatedHtml);
+      const formatted = autoFormatSingleLineHtml(finalHtml);
+      setGeneratedHtml(formatted);
+      setEditCodeValue(formatted);
+      updatedHtml = formatted;
+      injected = true;
       
       const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       setTerminalLogs(prev => [...prev, {
@@ -251,6 +301,11 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
         type: 'info',
         timestamp: timeStr
       }]);
+    }
+
+    if (injected) {
+      const changeDesc = `Injection automatique du bouton de paiement Vendza:Pay (${widgetAmount} ${widgetCurrency})`;
+      await saveManualModification(updatedHtml, changeDesc);
     }
   };
   
@@ -512,12 +567,13 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
         addLog("🔮 Code HTML reçu avec succès de l'IA.", "info");
         addLog("🚀 Compilation finale et assemblage du livrable...", "system");
         
-        setGeneratedHtml(data.html);
+        const formattedHtml = autoFormatSingleLineHtml(data.html);
+        setGeneratedHtml(formattedHtml);
         
         // Add final compilation logs
         addLog("✅ Rendu de la page compilé avec succès !", "success");
-        const linesCount = data.html.split('\n').length;
-        const sizeKb = (new Blob([data.html]).size / 1024).toFixed(2);
+        const linesCount = formattedHtml.split('\n').length;
+        const sizeKb = (new Blob([formattedHtml]).size / 1024).toFixed(2);
         const duration = ((Date.now() - startTime) / 1000).toFixed(1) + 's';
 
         addLog(`📈 Statistiques du livrable : ${linesCount} lignes de code, ${sizeKb} KB.`, "success");
@@ -541,10 +597,106 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
         };
         setMessages(prev => [...prev, assistantMessage]);
 
-        // Pre-fill publish form based on prompt content
-        if (!siteName) {
+        // Autosave draft to Supabase sites
+        let finalSiteId = currentSiteId;
+        let finalSiteName = siteName;
+        let finalDomain = siteDomain;
+
+        if (!finalSiteName) {
           const matchName = userMsgText.match(/(?:pour (?:un |une )?|de )([A-Za-zÀ-ÖØ-öø-ÿ\s'-]{3,25})/i);
-          setSiteName(matchName ? `Site ${matchName[1].trim()}` : "Mon site généré");
+          finalSiteName = matchName ? `Site ${matchName[1].trim()}` : "Mon site généré";
+          setSiteName(finalSiteName);
+        }
+
+        if (!finalSiteId) {
+          // Generate an initial random subdomain
+          const cleanName = finalSiteName
+            .toLowerCase()
+            .replace(/[^a-z0-9]/g, '-')
+            .replace(/-+/g, '-')
+            .replace(/^-|-$/g, '');
+          finalDomain = `${cleanName || 'site'}-${Math.random().toString(36).substring(2, 8)}.weel.site`;
+          setSiteDomain(finalDomain);
+
+          const newSiteObj = {
+            user_id: userProfile?.id || 'demo-user-123',
+            name: finalSiteName,
+            original_prompt: userMsgText,
+            status: 'draft', // Saved as draft first!
+            storage_path: formattedHtml,
+            domain: finalDomain
+          };
+
+          addLog("💾 Enregistrement automatique du brouillon du site (table sites)...", "info");
+
+          try {
+            const { data: insertedSite, error: siteError } = await supabase
+              .from('sites')
+              .insert(newSiteObj)
+              .select()
+              .single();
+
+            if (siteError) {
+              console.error("Error inserting draft site:", siteError);
+              addLog("⚠️ Erreur lors de l'enregistrement automatique du brouillon.", "warning");
+            } else if (insertedSite) {
+              finalSiteId = insertedSite.id;
+              setCurrentSiteId(finalSiteId);
+              addLog("✅ Brouillon de site enregistré avec succès !", "success");
+            }
+          } catch (err) {
+            console.error("Failed to insert site:", err);
+          }
+        } else {
+          addLog("💾 Sauvegarde automatique du brouillon (table sites)...", "info");
+          try {
+            const { error: updateError } = await supabase
+              .from('sites')
+              .update({
+                storage_path: formattedHtml,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', finalSiteId);
+
+            if (updateError) {
+              console.error("Error updating draft site:", updateError);
+              addLog("⚠️ Erreur lors de la mise à jour automatique du brouillon.", "warning");
+            } else {
+              addLog("✅ Brouillon mis à jour avec succès !", "success");
+            }
+          } catch (err) {
+            console.error("Failed to update site:", err);
+          }
+        }
+
+        // Record the generation or modification in generations table
+        if (finalSiteId && userProfile) {
+          addLog("📝 Enregistrement de la modification (table generations)...", "info");
+          try {
+            const { error: genError } = await supabase
+              .from('generations')
+              .insert({
+                site_id: finalSiteId,
+                user_id: userProfile.id,
+                prompt: userMsgText,
+                tokens_input: Math.floor(userMsgText.length * 1.5),
+                tokens_output: Math.floor(formattedHtml.length / 4),
+                estimated_cost: 0.002
+              });
+
+            if (genError) {
+              console.error("Error inserting generation:", genError);
+            } else {
+              addLog("✅ Historique de génération enregistré dans la table generations !", "success");
+            }
+          } catch (err) {
+            console.error("Failed to insert generation:", err);
+          }
+        }
+
+        // Cache the code in localStorage using current/updated domain
+        if (finalDomain) {
+          localStorage.setItem(`weel_tech_site_html_${finalDomain}`, formattedHtml);
         }
       } else {
         throw new Error("L'IA n'a pas retourné de code HTML valide.");
@@ -616,22 +768,45 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
     }
 
     try {
-      const newSiteRecord = {
-        user_id: userProfile.id,
-        name: siteName.trim(),
-        domain: formattedDomain,
-        status: 'active' as const,
-        visitors_24h: 1, // Fresh launch!
-        type: siteType,
-        updated_at: new Date().toISOString()
-      };
+      if (currentSiteId) {
+        const updateSiteRecord = {
+          name: siteName.trim(),
+          domain: formattedDomain,
+          status: 'active' as const, // Maps to 'published' in DB
+          type: siteType,
+          storage_path: generatedHtml,
+          updated_at: new Date().toISOString()
+        };
 
-      // Insert site metadata
-      const { data, error } = await supabase
-        .from('sites')
-        .insert(newSiteRecord);
+        const { error } = await supabase
+          .from('sites')
+          .update(updateSiteRecord)
+          .eq('id', currentSiteId);
 
-      if (error) throw error;
+        if (error) throw error;
+      } else {
+        const newSiteRecord = {
+          user_id: userProfile.id,
+          name: siteName.trim(),
+          domain: formattedDomain,
+          status: 'active' as const, // Maps to 'published' in DB
+          type: siteType,
+          original_prompt: prompt || 'Génération manuelle',
+          storage_path: generatedHtml,
+          updated_at: new Date().toISOString()
+        };
+
+        const { data, error } = await supabase
+          .from('sites')
+          .insert(newSiteRecord)
+          .select()
+          .single();
+
+        if (error) throw error;
+        if (data) {
+          setCurrentSiteId(data.id);
+        }
+      }
 
       // To make the generated HTML fully functional later, 
       // we cache the code in localStorage using the unique domain as the key.
@@ -2058,4 +2233,105 @@ function getImgSources(html: string): string[] {
     }
   }
   return sources;
+}
+
+// Robust HTML/CSS/JS Formatter to beautify any single-line generated output
+function autoFormatSingleLineHtml(html: string): string {
+  if (!html) return '';
+  
+  // If the code already has proper line breaks, keep it as is
+  const lines = html.split('\n');
+  if (lines.length > 25 && html.length / lines.length < 220) {
+    return html;
+  }
+  
+  // 1. Temporarily extract script and style tags to avoid breaking their internal syntax (like loops with <)
+  const styles: string[] = [];
+  const scripts: string[] = [];
+  
+  let tempHtml = html;
+  
+  // Extract styles
+  tempHtml = tempHtml.replace(/<style[^>]*>([\s\S]*?)<\/style>/gi, (match) => {
+    styles.push(match);
+    return `\n___STYLE_PLACEHOLDER_${styles.length - 1}___\n`;
+  });
+  
+  // Extract scripts
+  tempHtml = tempHtml.replace(/<script\b[^>]*>([\s\S]*?)<\/script>/gi, (match) => {
+    scripts.push(match);
+    return `\n___SCRIPT_PLACEHOLDER_${scripts.length - 1}___\n`;
+  });
+  
+  // 2. Format the remaining HTML structure
+  let formatted = '';
+  let indent = 0;
+  
+  // Clean up excessive spaces in HTML tokens
+  const tokens = tempHtml.split(/(<\/?[a-zA-Z0-9-:]+(?:\s+[^>]*?)?>)/);
+  
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (!token) continue;
+    
+    if (token.startsWith('<') && token.endsWith('>')) {
+      const isComment = token.startsWith('<!--');
+      const isClosing = token.startsWith('</');
+      const isSelfClosing = token.endsWith('/>') || 
+                            /^(?:area|base|br|col|embed|hr|img|input|link|meta|param|source|track|wbr)$/i.test(token.match(/<([a-zA-Z0-9-:]+)/)?.[1] || '');
+      
+      if (isClosing) {
+        indent = Math.max(0, indent - 1);
+      }
+      
+      const padding = '  '.repeat(indent);
+      formatted += '\n' + padding + token;
+      
+      if (!isClosing && !isSelfClosing && !isComment) {
+        indent++;
+      }
+    } else {
+      const trimmedText = token.trim();
+      if (trimmedText) {
+        const padding = '  '.repeat(indent);
+        formatted += '\n' + padding + trimmedText;
+      }
+    }
+  }
+  
+  // Clean line breaks
+  let finalHtml = formatted
+    .split('\n')
+    .map(line => line.trim() === '' ? '' : line)
+    .filter((line, index, arr) => !(line === '' && arr[index - 1] === ''))
+    .join('\n')
+    .trim();
+  
+  // 3. Restore style blocks (and format them slightly if they are on a single line)
+  styles.forEach((styleBlock, idx) => {
+    let blockContent = styleBlock;
+    if (!blockContent.includes('\n')) {
+      blockContent = blockContent
+        .replace(/({\s*)/g, ' {\n  ')
+        .replace(/(;\s*)/g, ';\n  ')
+        .replace(/(\s*})/g, '\n}')
+        .replace(/\s*;\s*\n\s*}/g, ';\n}');
+    }
+    finalHtml = finalHtml.replace(`___STYLE_PLACEHOLDER_${idx}___`, blockContent);
+  });
+  
+  // 4. Restore script blocks (and format them slightly if on a single line)
+  scripts.forEach((scriptBlock, idx) => {
+    let blockContent = scriptBlock;
+    if (!blockContent.includes('\n')) {
+      blockContent = blockContent
+        .replace(/({\s*)/g, ' {\n  ')
+        .replace(/(;\s*)/g, ';\n  ')
+        .replace(/(\s*})/g, '\n}')
+        .replace(/\s*;\s*\n\s*}/g, ';\n}');
+    }
+    finalHtml = finalHtml.replace(`___SCRIPT_PLACEHOLDER_${idx}___`, blockContent);
+  });
+  
+  return finalHtml;
 }

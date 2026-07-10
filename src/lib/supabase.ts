@@ -581,8 +581,7 @@ export const mockSupabase = {
         };
       },
 
-      insert: async (records: any | any[]) => {
-        await new Promise(resolve => setTimeout(resolve, 400));
+      insert: (records: any | any[]) => {
         const arr = Array.isArray(records) ? records : [records];
         const updatedArr = arr.map(rec => ({
           id: rec.id || 'id_' + Math.random().toString(36).substring(2, 11),
@@ -593,7 +592,37 @@ export const mockSupabase = {
 
         list.push(...updatedArr);
         setLocalData(table, list);
-        return { data: updatedArr, error: null };
+
+        const promiseExecutor = async () => {
+          await new Promise(resolve => setTimeout(resolve, 300));
+          return { data: updatedArr, error: null };
+        };
+
+        const result: any = {
+          then: (onfulfilled?: any, onrejected?: any) => {
+            return promiseExecutor().then(onfulfilled, onrejected);
+          },
+          select: () => {
+            const selectResult: any = {
+              then: (onfulfilled?: any, onrejected?: any) => {
+                return promiseExecutor().then(onfulfilled, onrejected);
+              },
+              single: () => {
+                const singleExecutor = async () => {
+                  await new Promise(resolve => setTimeout(resolve, 300));
+                  return { data: updatedArr[0] || null, error: null };
+                };
+                return {
+                  then: (onfulfilled?: any, onrejected?: any) => {
+                    return singleExecutor().then(onfulfilled, onrejected);
+                  }
+                };
+              }
+            };
+            return selectResult;
+          }
+        };
+        return result;
       },
 
       update: (fieldsToUpdate: any) => {
@@ -649,6 +678,12 @@ function mapDbSiteToAppSite(dbSite: any): any {
     domain = dbSite.domain;
   }
 
+  // Map published status back to active for application compatibility
+  let status = dbSite.status;
+  if (dbSite.status === 'published') {
+    status = 'active';
+  }
+
   // Derive site type from name or subdomain
   let type = 'vitrine';
   const nameLower = String(dbSite.name || '').toLowerCase();
@@ -676,6 +711,7 @@ function mapDbSiteToAppSite(dbSite: any): any {
     ...dbSite,
     domain,
     type,
+    status,
     visitors_24h,
   };
 }
@@ -683,6 +719,16 @@ function mapDbSiteToAppSite(dbSite: any): any {
 function mapAppSiteToDbSite(appSite: any): any {
   if (!appSite) return appSite;
   const dbSite = { ...appSite };
+
+  // Map active status to published for DB compatibility
+  if (dbSite.status === 'active') {
+    dbSite.status = 'published';
+  } else if (dbSite.status === 'draft') {
+    dbSite.status = 'draft';
+  }
+
+  // Ensure original_prompt is present and not null for database constraints
+  dbSite.original_prompt = dbSite.original_prompt || dbSite.name || 'Génération initiale';
 
   // If domain is provided, split it into subdomain and custom_domain
   if (dbSite.domain) {
