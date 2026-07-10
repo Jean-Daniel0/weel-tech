@@ -89,12 +89,21 @@ Vous devez STRICTEMENT retourner un objet JSON correspondant au schéma suivant 
       const errMsg = String(err?.message || '').toUpperCase();
       const errCode = String(err?.code || err?.status || err?.statusCode || '');
       return errCode.includes('503') || 
+             errCode.includes('429') ||
              errCode.includes('UNAVAILABLE') || 
+             errCode.includes('RESOURCE_EXHAUSTED') ||
              errMsg.includes('UNAVAILABLE') || 
              errMsg.includes('503') ||
+             errMsg.includes('429') ||
+             errMsg.includes('RESOURCE_EXHAUSTED') ||
+             errMsg.includes('RATE_LIMIT') ||
+             errMsg.includes('QUOTA') ||
+             errMsg.includes('LIMIT_EXCEEDED') ||
              errMsg.includes('SERVICE_UNAVAILABLE') ||
              err?.status === 503 ||
-             err?.statusCode === 503;
+             err?.status === 429 ||
+             err?.statusCode === 503 ||
+             err?.statusCode === 429;
     };
 
     // Helper for strict API request timeout
@@ -118,11 +127,11 @@ Vous devez STRICTEMENT retourner un objet JSON correspondant au schéma suivant 
 
     // Configuration for the 5 generation attempts
     const attemptsConfig = [
-      { attemptNum: 1, model: 'gemini-3.5-flash', backoff: 1000 },
-      { attemptNum: 2, model: 'gemini-3.5-flash', backoff: 3000 },
-      { attemptNum: 3, model: 'gemini-3.5-flash', backoff: 6000 },
-      { attemptNum: 4, model: 'gemini-flash-latest', backoff: 2000 },
-      { attemptNum: 5, model: 'gemini-2.5-flash-lite', backoff: 0 }
+      { attemptNum: 1, model: 'gemini-3.5-flash', backoff: 500 },
+      { attemptNum: 2, model: 'gemini-3.1-flash-lite', backoff: 1000 },
+      { attemptNum: 3, model: 'gemini-3.5-flash', backoff: 1500 },
+      { attemptNum: 4, model: 'gemini-flash-latest', backoff: 1000 },
+      { attemptNum: 5, model: 'gemini-3.1-flash-lite', backoff: 0 }
     ];
 
     const globalStartTime = Date.now();
