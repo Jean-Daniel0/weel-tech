@@ -110,40 +110,40 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
   // Handle suggest cards
   const suggestionPrompts = [
     {
-      title: "Portfolio de Photographe",
-      desc: "Thème sombre élégant, galerie interactive filtrable, vue plein écran et formulaire de contact épuré.",
+      title: "Portfolio de Photographe d'Art",
+      desc: "Esthétique sombre raffinée, galerie filtrable interactive gérée par JavaScript, et formulaire sécurisé avec validation.",
       image: "https://images.unsplash.com/photo-1542038784456-1ea8e935640e?auto=format&fit=crop&w=400&q=80",
-      prompt: "Crée un portfolio de photographe professionnel avec thème sombre et moderne, galerie d'images interactive avec filtres d'affichage et formulaire de contact fonctionnel avec style minimaliste."
+      prompt: "Génère un portfolio de photographe d'art professionnel à l'aide de Tailwind CSS et Lucide Icons. L'interface doit adopter une esthétique sombre et haut de gamme (fond noir ardoise avec des nuances crème/or subtiles). Fonctionnalités requises : une section héros captivante avec titre d'en-tête élégant, une galerie de photographies d'art interactive entièrement filtrable par catégories (ex: Paysages, Portraits, Nature) gérée par JavaScript côté client, une présentation biographique à l'allure éditoriale littéraire, et un formulaire de contact minimaliste avec validation rigoureuse en temps réel et avertissement contre l'envoi de données confidentielles. Veille à ce que toutes les images Unsplash utilisent l'attribut referrerPolicy=\"no-referrer\" et que tous les liens externes s'ouvrent de manière sécurisée avec target=\"_blank\" et rel=\"noopener noreferrer\"."
     },
     {
       title: "Boutique de Café Artisanal",
-      desc: "Hero section immersive, grille de produits interactive avec panier d'achat fonctionnel et totaux en JS.",
+      desc: "Ambiance chaleureuse, présentation écoresponsable, grille de produits interactive avec panier d'achat dynamique en JS.",
       image: "https://images.unsplash.com/photo-1498804103079-a6351b050096?auto=format&fit=crop&w=400&q=80",
-      prompt: "Crée un site e-commerce de café artisanal avec hero section chaleureuse, présentation de l'histoire, grille de produits interactive, panier d'achat en temps réel en JS avec gestion des quantités et calcul du total."
+      prompt: "Crée une page e-commerce interactive pour une marque de café artisanal haut de gamme. Utilise des nuances chaudes de terre, de crème et de brun-café avec des touches modernes de vert forêt. Le site doit intégrer : une section héros immersive, un volet éducatif sur le sourcing éthique des grains, une grille de produits interactive permettant l'ajout d'articles au panier en temps réel, un panier d'achat interactif recalculant dynamiquement le total, les quantités et les frais d'expédition fictifs, et une simulation de validation de commande sécurisée (sans demande de carte bancaire réelle) montrant un retour visuel clair sous forme de notification."
     },
     {
-      title: "Page Agence Marketing",
-      desc: "Design épuré, grilles de services, témoignages animés et grille d'offres tarifaires claires.",
+      title: "Agence de Stratégie Digitale",
+      desc: "Design professionnel épuré, grilles de services interactives, témoignages animés et grille tarifaire dynamique.",
       image: "https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=400&q=80",
-      prompt: "Crée une page pour une agence de marketing digital avec design moderne, section de nos services, témoignages clients animés et une grille d'offres tarifaires interactives en accordéon."
+      prompt: "Développe une page vitrine complète pour une agence de conseil et stratégie marketing digital. Utilise une palette lumineuse et épurée (fond blanc cassé, gris doux, bleu électrique professionnel). Inclus : un hero accrocheur avec des boutons d'appels à l'action distincts, une grille de services interactifs avec des icônes descriptives, un module dynamique de témoignages clients défilant ou filtrable, un tableau comparatif de tarifs interactif permettant de basculer instantanément entre facturation mensuelle et annuelle grâce à JavaScript, et un formulaire d'estimation de projet sécurisé avec validation complète des entrées de l'utilisateur."
     },
     {
-      title: "Landing Page de SaaS / App",
-      desc: "Esthétique tech futuriste avec dégradés, tableau comparatif, FAQ et CTA percutants.",
+      title: "Landing Page SaaS Moderne",
+      desc: "Style technologique de pointe avec des dégradés de couleurs subtils, un accordéon FAQ dynamique et des forfaits interactifs.",
       image: "https://images.unsplash.com/photo-1512941937669-90a1b58e7e9c?auto=format&fit=crop&w=400&q=80",
-      prompt: "Crée une landing page pour une application SaaS avec un design technologique moderne, des dégradés de couleurs subtils, un tableau comparatif des fonctionnalités interactif et des boutons de téléchargement animés."
+      prompt: "Génère une landing page haut de gamme pour un logiciel SaaS de productivité d'équipe. Crée une mise en page technologique raffinée (fond gris anthracite très élégant, bordures extra-fines, dégradés de couleurs doux bleus/violets, coins arrondis précis). Sections requises : proposition de valeur percutante avec bouton d'appel à l'action, grille de fonctionnalités interactives avec fenêtres de détails réactives au survol, tableau de comparaison des formules d'abonnement, section FAQ interactive utilisant des accordéons dynamiques s'ouvrant individuellement en JS, et un pied de page légal soigné. Assure une accessibilité visuelle irréprochable avec des taux de contraste optimisés pour le texte."
     },
     {
-      title: "Hôtel de Luxe & Réservations",
-      desc: "Galerie de photos, présentation de services premium et sélecteur de dates interactif en JS.",
+      title: "Hôtel-Boutique & Réservation",
+      desc: "Diaporama photo de prestige, sélecteur de dates de séjour logique avec calcul de prix estimatif automatique.",
       image: "https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=400&q=80",
-      prompt: "Crée un site d'hôtel de luxe avec galerie d'images des chambres de prestige, présentation des services exclusifs et sélecteur de dates interactif pour simuler une réservation avec message de succès."
+      prompt: "Conçois une interface web d'exception pour un hôtel-boutique et spa de luxe. Adopte un style chic et lumineux (nuances de blanc, beige lin et touches dorées minimalistes, polices sérif raffinées). Le site doit contenir : un en-tête immersif avec un diaporama d'images des suites, une grille présentant les services et activités exclusifs, un formulaire de réservation interactif et intelligent validant logiquement que la date de départ est postérieure à la date d'arrivée, calculant automatiquement un devis estimatif dynamique basé sur le nombre de nuits et de personnes, et un encart confirmant que la saisie de données est sécurisée et confidentielle."
     },
     {
-      title: "Studio de Mode & Création",
-      desc: "Inspirations minimalistes, grand visuel éditorial, lookbook immersif et typographie soignée.",
+      title: "Maison de Couture & Design",
+      desc: "Style éditorial façon magazine de mode, lookbook immersif de créateur et inscription sécurisée.",
       image: "https://images.unsplash.com/photo-1509319117193-57bab727e09d?auto=format&fit=crop&w=400&q=80",
-      prompt: "Crée un site internet de studio de mode minimaliste avec style éditorial élégant (typographie serif), lookbook d'images, section de présentation de la collection et formulaire d'inscription à la newsletter."
+      prompt: "Construis un site web artistique pour un atelier de création de mode et haute couture sur-mesure. Inspire-toi des magazines d'art contemporains : grands aplats de couleurs, typographie fine et distinguée, et utilisation audacieuse des espaces négatifs. Le site doit comporter : une introduction de l'histoire et du savoir-faire de l'atelier, un lookbook interactif permettant d'explorer de grandes photos de créateur avec description textuelle dynamique au clic ou survol, et un formulaire sécurisé de demande de rendez-vous ou d'inscription à la newsletter validant précisément le format des adresses e-mail avec un message de succès élégant."
     }
   ];
 
