@@ -251,14 +251,15 @@ Vous devez STRICTEMENT retourner un objet JSON correspondant au schéma suivant 
               anthropicMessages = [{ role: 'user', content: prompt }];
             }
 
+            let timerId: NodeJS.Timeout | null = null;
             const controller = new AbortController();
             const timeoutPromise = new Promise<never>((_, reject) => {
-              const timer = setTimeout(() => {
+              timerId = setTimeout(() => {
                 controller.abort();
                 reject(new Error("TIMEOUT"));
               }, currentTimeout);
-              if (timer && typeof timer.unref === 'function') {
-                timer.unref();
+              if (timerId && typeof (timerId as any).unref === 'function') {
+                (timerId as any).unref();
               }
             });
 
@@ -279,6 +280,9 @@ Vous devez STRICTEMENT retourner un objet JSON correspondant au schéma suivant 
             });
 
             const fetchResponse = await Promise.race([apiPromise, timeoutPromise]) as any;
+            if (timerId) {
+              clearTimeout(timerId);
+            }
 
             if (!fetchResponse.ok) {
               const errBody = await fetchResponse.text();
@@ -321,6 +325,113 @@ Vous devez STRICTEMENT retourner un objet JSON correspondant au schéma suivant 
               console.error(`[Anthropic API] Échec de la tentative Claude - Erreur : Timeout de ${currentTimeout}ms dépassé`);
             } else {
               console.error(`[Anthropic API] Échec de la tentative Claude - Erreur : ${err.message || err}`);
+            }
+          }
+        }
+      }
+    }
+
+    // 3. OpenAI Fallback Attempt
+    if (!success) {
+      const openAiKey = process.env.OPENAI_API_KEY;
+      if (!openAiKey) {
+        console.log("[OpenAI API] OPENAI_API_KEY n'est pas configurée. Impossible d'effectuer la tentative de secours.");
+      } else {
+        const elapsed = Date.now() - globalStartTime;
+        const remainingGlobalTime = globalTimeoutMs - elapsed;
+        
+        if (remainingGlobalTime <= 1000) {
+          console.log("[OpenAI API] Pas assez de temps restant pour la tentative de secours OpenAI.");
+        } else {
+          const currentTimeout = Math.min(15000, remainingGlobalTime);
+          console.log(`[OpenAI API] Tentative de secours avec le modèle gpt-4o-mini (Timeout: ${currentTimeout}ms)...`);
+          
+          try {
+            let openaiMessages = [];
+            if (systemInstruction) {
+              openaiMessages.push({ role: "system", content: systemInstruction });
+            }
+            if (history && Array.isArray(history) && history.length > 0) {
+              openaiMessages.push(...history.map((msg: any) => ({
+                role: msg.role === 'assistant' ? 'assistant' : 'user',
+                content: msg.content
+              })));
+            } else {
+              openaiMessages.push({ role: 'user', content: prompt });
+            }
+
+            let timerId: NodeJS.Timeout | null = null;
+            const controller = new AbortController();
+            const timeoutPromise = new Promise<never>((_, reject) => {
+              timerId = setTimeout(() => {
+                controller.abort();
+                reject(new Error("TIMEOUT"));
+              }, currentTimeout);
+              if (timerId && typeof (timerId as any).unref === 'function') {
+                (timerId as any).unref();
+              }
+            });
+
+            const apiPromise = fetch("https://api.openai.com/v1/chat/completions", {
+              method: "POST",
+              headers: {
+                "Authorization": `Bearer ${openAiKey}`,
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({
+                model: "gpt-4o-mini",
+                messages: openaiMessages,
+                response_format: { type: "json_object" }
+              }),
+              signal: controller.signal
+            });
+
+            const fetchResponse = await Promise.race([apiPromise, timeoutPromise]) as any;
+            if (timerId) {
+              clearTimeout(timerId);
+            }
+
+            if (!fetchResponse.ok) {
+              const errBody = await fetchResponse.text();
+              throw new Error(`Erreur HTTP OpenAI ${fetchResponse.status}: ${errBody}`);
+            }
+
+            const data = await fetchResponse.json();
+            const rawText = data?.choices?.[0]?.message?.content;
+            if (!rawText) {
+              throw new Error("La réponse de OpenAI ne contient pas de texte.");
+            }
+
+            // Extract JSON from response
+            let cleanJsonStr = rawText.trim();
+            if (cleanJsonStr.startsWith("```")) {
+              cleanJsonStr = cleanJsonStr.replace(/^```(?:json)?\n?/i, "").replace(/\n?```$/, "").trim();
+            }
+
+            // Extract valid JSON content helper
+            const extractJson = (text: string) => {
+              const startIdx = text.indexOf('{');
+              const endIdx = text.lastIndexOf('}');
+              if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+                const jsonCandidate = text.slice(startIdx, endIdx + 1);
+                try {
+                  return JSON.parse(jsonCandidate);
+                } catch (e) {
+                  // Fall through
+                }
+              }
+              return JSON.parse(text);
+            };
+
+            finalJsonResult = extractJson(cleanJsonStr);
+            console.log("[AI Provider Selection] Succès: OpenAI (Modèle: gpt-4o-mini) a répondu.");
+            success = true;
+          } catch (err: any) {
+            const isTimeout = err?.message === "TIMEOUT" || err?.name === "AbortError";
+            if (isTimeout) {
+              console.error(`[OpenAI API] Échec de la tentative OpenAI - Erreur : Timeout de ${currentTimeout}ms dépassé`);
+            } else {
+              console.error(`[OpenAI API] Échec de la tentative OpenAI - Erreur : ${err.message || err}`);
             }
           }
         }
