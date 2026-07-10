@@ -13,6 +13,16 @@
 
 html {
   zoom: 0.82; /* Zoom factor to scale all components and layouts down precisely and beautifully */
+  height: 122vh;
+  width: 122vw;
+  box-sizing: border-box;
+}
+
+body, #root {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
 }
 
 body {

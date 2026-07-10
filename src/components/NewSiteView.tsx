@@ -357,7 +357,7 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
       <div className="grid grid-cols-1 md:grid-cols-10 gap-4 flex-1 min-h-0 items-stretch">
         
         {/* LEFT COLUMN: Conversational AI Panel (4 / 10 = 40%) */}
-        <div className="md:col-span-4 flex flex-col bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs relative h-[550px]">
+        <div className="md:col-span-4 flex flex-col bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs relative min-h-[550px] md:h-full md:min-h-0">
           
           {/* Chat Panel Header */}
           <div className="bg-slate-50/70 border-b border-slate-100 px-3.5 py-3 flex items-center justify-between">
@@ -478,7 +478,7 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
         </div>
 
         {/* RIGHT COLUMN: Live Interactive HTML Sandbox Preview (6 / 10 = 60%) */}
-        <div className="md:col-span-6 flex flex-col bg-white border border-slate-200 rounded-xl shadow-sm relative overflow-hidden h-[550px]">
+        <div className="md:col-span-6 flex flex-col bg-white border border-slate-200 rounded-xl shadow-sm relative overflow-hidden min-h-[550px] md:h-full md:min-h-0">
           
           {/* Preview Panel Header with Pill Switcher */}
           <div className="bg-slate-50/70 border-b border-slate-100 px-4 py-2 flex items-center justify-between shrink-0">

@@ -141,7 +141,7 @@ export default function App() {
   const isWorkspaceView = currentView === 'new-site';
 
   return (
-    <div className="h-screen bg-[#F5F7FA] flex flex-col text-brand-dark overflow-hidden">
+    <div className="h-full bg-[#F5F7FA] flex flex-col text-brand-dark overflow-hidden">
       {/* Sandbox mode top banner */}
       {userProfile?.sandbox_mode && (
         <div className="bg-amber-500 text-white px-4 py-1.5 text-center text-xs font-bold font-display flex items-center justify-center gap-1.5 shadow-sm shrink-0 z-50">
@@ -188,7 +188,7 @@ export default function App() {
         {/* Content Box */}
         <main 
           className={isWorkspaceView 
-            ? "flex-1 w-full h-screen overflow-hidden flex flex-col p-4 md:p-6 bg-[#F5F7FA]" 
+            ? "flex-1 w-full h-full min-h-0 overflow-hidden flex flex-col p-4 md:p-6 bg-[#F5F7FA]" 
             : "flex-1 p-4 sm:p-6 md:p-8 max-w-7xl mx-auto w-full overflow-y-auto min-h-0 h-full"
           }
           style={!isWorkspaceView ? { paddingRight: '30px' } : undefined}
