@@ -82,6 +82,7 @@ Vous devez STRICTEMENT retourner un objet JSON correspondant au schéma suivant 
     let response: any = null;
     let success = false;
     let lastError: any = null;
+    let globalTimeoutHit = false;
 
     const isUnavailableError = (err: any): boolean => {
       const errMsg = String(err?.message || '').toUpperCase();
@@ -95,6 +96,25 @@ Vous devez STRICTEMENT retourner un objet JSON correspondant au schéma suivant 
              err?.statusCode === 503;
     };
 
+    // Helper for strict API request timeout
+    const generateWithTimeout = async (aiClient: any, params: any, timeoutMs: number) => {
+      const controller = new AbortController();
+      
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        const timer = setTimeout(() => {
+          controller.abort();
+          reject(new Error("TIMEOUT"));
+        }, timeoutMs);
+        if (timer && typeof timer.unref === 'function') {
+          timer.unref();
+        }
+      });
+
+      const apiPromise = aiClient.models.generateContent(params, { signal: controller.signal });
+
+      return Promise.race([apiPromise, timeoutPromise]);
+    };
+
     // Configuration for the 5 generation attempts
     const attemptsConfig = [
       { attemptNum: 1, model: 'gemini-3.5-flash', backoff: 1000 },
@@ -104,12 +124,27 @@ Vous devez STRICTEMENT retourner un objet JSON correspondant au schéma suivant 
       { attemptNum: 5, model: 'gemini-2.5-flash-lite', backoff: 0 }
     ];
 
+    const globalStartTime = Date.now();
+    const globalTimeoutMs = 24000;
+
     // Running the defined sequence of generation attempts
     for (let i = 0; i < attemptsConfig.length; i++) {
       const config = attemptsConfig[i];
-      console.log(`[Gemini API] Tentative ${config.attemptNum}/5 avec le modèle ${config.model}...`);
+      
+      const elapsed = Date.now() - globalStartTime;
+      const remainingGlobalTime = globalTimeoutMs - elapsed;
+      
+      if (remainingGlobalTime <= 1000) {
+        console.log(`[Gemini API] Timeout global atteint avant de démarrer la tentative ${config.attemptNum}.`);
+        globalTimeoutHit = true;
+        break;
+      }
+
+      const currentTimeout = Math.min(15000, remainingGlobalTime);
+      console.log(`[Gemini API] Tentative ${config.attemptNum}/5 avec le modèle ${config.model} (Timeout: ${currentTimeout}ms)...`);
+
       try {
-        response = await ai.models.generateContent({
+        response = await generateWithTimeout(ai, {
           model: config.model,
           contents: contents,
           config: {
@@ -130,26 +165,56 @@ Vous devez STRICTEMENT retourner un objet JSON correspondant au schéma suivant 
               required: ["message", "html"]
             }
           }
-        });
+        }, currentTimeout);
+
         console.log(`[Gemini API] Tentative ${config.attemptNum}/5 réussie avec le modèle ${config.model}.`);
         success = true;
         break;
       } catch (err: any) {
         lastError = err;
-        console.error(`[Gemini API] Échec de la tentative ${config.attemptNum}/5 avec le modèle ${config.model} - Erreur : ${err.message || err} (Status/Code: ${err?.status || err?.statusCode || err?.code || 'N/A'})`);
+        const isTimeout = err?.message === "TIMEOUT" || err?.name === "AbortError";
         
-        // Stop early if the error is non-transient (e.g. invalid API key, invalid request parameters, etc.)
-        if (!isUnavailableError(err)) {
+        if (isTimeout) {
+          console.error(`[Gemini API] Échec de la tentative ${config.attemptNum}/5 avec le modèle ${config.model} - Erreur : Timeout de ${currentTimeout}ms dépassé (Status/Code: TIMEOUT)`);
+        } else {
+          console.error(`[Gemini API] Échec de la tentative ${config.attemptNum}/5 avec le modèle ${config.model} - Erreur : ${err.message || err} (Status/Code: ${err?.status || err?.statusCode || err?.code || 'N/A'})`);
+        }
+
+        // Check if global timeout was reached
+        const checkElapsed = Date.now() - globalStartTime;
+        if (checkElapsed >= globalTimeoutMs) {
+          console.log(`[Gemini API] Timeout global de ${globalTimeoutMs}ms dépassé lors de la tentative ${config.attemptNum}.`);
+          globalTimeoutHit = true;
+          break;
+        }
+
+        // Stop early if the error is non-transient
+        if (!isTimeout && !isUnavailableError(err)) {
           console.log(`[Gemini API] Erreur non-transitoire détectée à la tentative ${config.attemptNum}. Arrêt immédiat.`);
           break;
         }
 
         // Wait with backoff before next retry
         if (config.backoff > 0 && i < attemptsConfig.length - 1) {
-          console.log(`[Gemini API] Service indisponible. Attente de ${config.backoff / 1000}s avant le prochain essai...`);
-          await new Promise(resolve => setTimeout(resolve, config.backoff));
+          const timeAfterAttempt = Date.now() - globalStartTime;
+          const remainingAfterAttempt = globalTimeoutMs - timeAfterAttempt;
+          if (remainingAfterAttempt > 1000) {
+            const actualBackoff = Math.min(config.backoff, remainingAfterAttempt - 1000);
+            if (actualBackoff > 0) {
+              console.log(`[Gemini API] Service indisponible ou timeout. Attente de ${actualBackoff / 1000}s avant le prochain essai...`);
+              await new Promise(resolve => setTimeout(resolve, actualBackoff));
+            }
+          } else {
+            console.log(`[Gemini API] Pas assez de temps restant pour appliquer le backoff de ${config.backoff}ms.`);
+          }
         }
       }
+    }
+
+    if (globalTimeoutHit) {
+      return res.status(504).json({
+        error: "La génération a dépassé la limite de temps autorisée de 24 secondes. Veuillez réessayer."
+      });
     }
 
     if (!success) {

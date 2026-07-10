@@ -18,7 +18,8 @@ import {
   Copy,
   Terminal,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -46,6 +47,24 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
   const [prompt, setPrompt] = useState('');
   const [generatedHtml, setGeneratedHtml] = useState<string>('');
   const [isGenerating, setIsGenerating] = useState(false);
+  
+  // Abort controller and cancel/timeout state tracking
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const abortReasonRef = useRef<'timeout' | 'user' | null>(null);
+
+  const handleCancelGeneration = () => {
+    if (isGenerating && abortControllerRef.current) {
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      setTerminalLogs(prev => [...prev, {
+        id: 'log-' + Math.random().toString(36).substring(2, 11),
+        text: "🛑 Demande d'annulation de la génération par l'utilisateur...",
+        type: 'warning',
+        timestamp: timeStr
+      }]);
+      abortReasonRef.current = 'user';
+      abortControllerRef.current.abort();
+    }
+  };
   const [previewMode, setPreviewMode] = useState<'desktop' | 'mobile' | 'code'>('desktop');
   const [copied, setCopied] = useState(false);
   const [isLogsExpanded, setIsLogsExpanded] = useState(true);
@@ -209,6 +228,17 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
       timeouts.push(t);
     });
 
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    abortReasonRef.current = null;
+
+    // Safety timeout of 35 seconds
+    const fetchTimeoutId = setTimeout(() => {
+      addLog("⚠️ Timeout de sécurité de 35 secondes dépassé côté client.", "warning");
+      abortReasonRef.current = 'timeout';
+      controller.abort();
+    }, 35000);
+
     try {
       // Build conversational history for Gemini proxy endpoint
       // We convert local ChatMessage structure to server-expected role/content list
@@ -225,10 +255,12 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
         body: JSON.stringify({
           prompt: userMsgText,
           history: conversationHistory
-        })
+        }),
+        signal: controller.signal
       });
 
       // Clear timeouts since we have the result (or error)
+      clearTimeout(fetchTimeoutId);
       timeouts.forEach(clearTimeout);
 
       // Instantly flush remaining logs for ultra-fast response
@@ -238,12 +270,35 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
       }
       setGenerationStepIndex(6); // Jump straight to completed step state
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Une erreur est survenue pendant la génération.");
+      let data: any = null;
+      let parseError = false;
+
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        try {
+          data = await response.json();
+        } catch (e) {
+          parseError = true;
+        }
       }
 
-      const data = await response.json();
+      if (!response.ok) {
+        let errorMsg = "Une erreur est survenue pendant la génération.";
+        if (data && data.error) {
+          errorMsg = data.error;
+        } else if (response.status === 504) {
+          errorMsg = "La génération a dépassé la limite de temps autorisée de 24 secondes. Veuillez réessayer.";
+        } else if (response.status === 503) {
+          errorMsg = "Le service de génération est momentanément surchargé. Veuillez réessayer dans quelques instants.";
+        } else {
+          errorMsg = `Le serveur a renvoyé une erreur (Code: ${response.status}).`;
+        }
+        throw new Error(errorMsg);
+      }
+
+      if (parseError || !data) {
+        throw new Error("Le serveur a renvoyé une réponse invalide (non-JSON). Veuillez réessayer.");
+      }
 
       // Check return payload
       if (data && data.html) {
@@ -290,9 +345,23 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
       }
 
     } catch (err: any) {
+      clearTimeout(fetchTimeoutId);
       console.error(err);
       timeouts.forEach(clearTimeout);
-      addLog(`❌ Erreur critique de génération : ${err.message || "Une erreur inconnue est survenue."}`, "error");
+
+      let customErrorMessage = err.message || "Une erreur inconnue est survenue.";
+
+      if (err.name === 'AbortError' || controller.signal.aborted) {
+        if (abortReasonRef.current === 'timeout') {
+          customErrorMessage = "La génération a pris trop de temps, veuillez réessayer.";
+          addLog("❌ La génération a pris trop de temps (limite client de 35 secondes dépassée).", "error");
+        } else {
+          customErrorMessage = "Génération annulée par l'utilisateur.";
+          addLog("ℹ️ Génération interrompue manuellement par l'utilisateur.", "info");
+        }
+      } else {
+        addLog(`❌ Erreur critique de génération : ${customErrorMessage}`, "error");
+      }
 
       const duration = ((Date.now() - startTime) / 1000).toFixed(1) + 's';
       setBuildSummary({
@@ -303,20 +372,22 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
         timestamp: new Date().toLocaleTimeString()
       });
 
-      setErrorMessage(err.message || "Impossible de générer le site. Vérifiez les paramètres de votre clé API.");
+      setErrorMessage(customErrorMessage);
       
       // Add error message as system bubble
       const errorMsgId = 'msg-' + Math.random().toString(36).substring(2, 11);
       const errorMessageBubble: ChatMessage = {
         id: errorMsgId,
         role: 'assistant',
-        content: `❌ Désolé, j'ai rencontré une erreur : ${err.message || "Une erreur inconnue est survenue."}. Veuillez réessayer ou configurer votre clé GEMINI_API_KEY.`,
+        content: `❌ ${customErrorMessage}`,
         timestamp: new Date()
       };
       setMessages(prev => [...prev, errorMessageBubble]);
     } finally {
       setIsGenerating(false);
       setGenerationStepIndex(-1);
+      abortControllerRef.current = null;
+      abortReasonRef.current = null;
     }
   };
 
@@ -629,6 +700,16 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
                               );
                             })}
                           </div>
+
+                          {/* Cancel generation button inside stepper card */}
+                          <button
+                            type="button"
+                            onClick={handleCancelGeneration}
+                            className="mt-2 w-full py-2 px-3 bg-red-50 hover:bg-red-100 active:bg-red-200 text-red-600 border border-red-200 text-xs font-bold rounded-lg transition duration-200 flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                          >
+                            <X className="w-3.5 h-3.5 shrink-0" />
+                            Annuler la génération
+                          </button>
                         </div>
                       </div>
                     )}
@@ -645,17 +726,28 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
                 type="text"
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
-                placeholder={isGenerating ? "L'IA réfléchit..." : "Ex: Ajoute un bouton d'achat ou change la couleur..."}
+                placeholder={isGenerating ? "Génération en cours... Vous pouvez annuler si besoin" : "Ex: Ajoute un bouton d'achat ou change la couleur..."}
                 disabled={isGenerating}
                 className="flex-1 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-[#0A0E1A] outline-none focus:ring-2 focus:ring-brand-blue/15 focus:border-brand-blue transition placeholder-slate-400 disabled:opacity-50 shadow-xs"
               />
-              <button
-                type="submit"
-                disabled={!prompt.trim() || isGenerating}
-                className="p-2 bg-[#2563EB] hover:bg-blue-700 text-white rounded-lg shadow-sm hover:shadow-md transition disabled:opacity-40 cursor-pointer flex items-center justify-center shrink-0"
-              >
-                <Send className="w-3.5 h-3.5" />
-              </button>
+              {isGenerating ? (
+                <button
+                  type="button"
+                  onClick={handleCancelGeneration}
+                  className="px-3 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white text-xs font-bold rounded-lg shadow-sm hover:shadow-md transition cursor-pointer flex items-center justify-center gap-1.5 shrink-0"
+                >
+                  <X className="w-3.5 h-3.5 shrink-0" />
+                  Annuler
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={!prompt.trim()}
+                  className="p-2 bg-[#2563EB] hover:bg-blue-700 text-white rounded-lg shadow-sm hover:shadow-md transition disabled:opacity-40 cursor-pointer flex items-center justify-center shrink-0"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                </button>
+              )}
             </form>
             <div className="flex items-center gap-1 text-[10px] text-slate-400 mt-1.5 px-0.5">
               <Info className="w-3 h-3 shrink-0" />
