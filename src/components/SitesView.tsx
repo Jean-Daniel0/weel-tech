@@ -1,15 +1,16 @@
 import React, { useState, useEffect, FormEvent } from 'react';
 import { supabase } from '../lib/supabase';
 import { Site, UserProfile } from '../types';
-import { Plus, Globe, Trash2, Check, RefreshCw, Eye, Sparkles, Filter, ExternalLink, ShieldCheck, Monitor, Smartphone, X, BarChart3 } from 'lucide-react';
+import { Plus, Globe, Trash2, Check, RefreshCw, Eye, Sparkles, Filter, ExternalLink, ShieldCheck, Monitor, Smartphone, X, BarChart3, Edit3 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import SiteDetailsView from './SiteDetailsView';
 
 interface SitesViewProps {
   userProfile: UserProfile | null;
+  onEditSite?: (site: Site) => void;
 }
 
-export default function SitesView({ userProfile }: SitesViewProps) {
+export default function SitesView({ userProfile, onEditSite }: SitesViewProps) {
   const [sites, setSites] = useState<Site[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -276,6 +277,7 @@ export default function SitesView({ userProfile }: SitesViewProps) {
           setSelectedSiteForDetails(null);
           fetchSites();
         }} 
+        onEditSite={onEditSite}
       />
     );
   }
@@ -526,6 +528,17 @@ export default function SitesView({ userProfile }: SitesViewProps) {
                         >
                           <Eye className="w-4 h-4" />
                         </button>
+
+                        {/* Edit site code */}
+                        {onEditSite && (
+                          <button
+                            onClick={() => onEditSite(site)}
+                            className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition cursor-pointer"
+                            title="Modifier / Éditer le site"
+                          >
+                            <Edit3 className="w-4 h-4" />
+                          </button>
+                        )}
 
                         {/* View stats details */}
                         <button

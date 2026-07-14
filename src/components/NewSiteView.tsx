@@ -38,6 +38,7 @@ import { motion, AnimatePresence } from 'motion/react';
 interface NewSiteViewProps {
   userProfile: UserProfile | null;
   onViewChange?: (view: any) => void;
+  editingSite?: Site | null;
 }
 
 interface ChatMessage {
@@ -54,7 +55,7 @@ interface TerminalLog {
   timestamp: string;
 }
 
-export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewProps) {
+export default function NewSiteView({ userProfile, onViewChange, editingSite }: NewSiteViewProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [prompt, setPrompt] = useState('');
   const [generatedHtml, setGeneratedHtml] = useState<string>('');
@@ -129,6 +130,55 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
         });
     }
   }, [userProfile]);
+
+  // Load existing site for editing if editingSite is provided
+  useEffect(() => {
+    if (editingSite) {
+      setSiteName(editingSite.name || '');
+      setSiteDomain(editingSite.domain || '');
+      setSiteType(editingSite.type || 'vitrine');
+      setCurrentSiteId(editingSite.id);
+
+      const htmlCode = (editingSite as any).storage_path || localStorage.getItem(`weel_tech_site_html_${editingSite.domain}`) || '';
+      setGeneratedHtml(htmlCode);
+
+      if (htmlCode) {
+        setBuildSummary({
+          status: 'success',
+          duration: '0.8s',
+          linesCount: htmlCode.split('\n').length,
+          sizeKb: `${(new Blob([htmlCode]).size / 1024).toFixed(2)} KB`,
+          timestamp: new Date(editingSite.updated_at || Date.now()).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+        });
+
+        const timeStr = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        setTerminalLogs([
+          {
+            id: 'log-init-edit',
+            text: `📂 Chargement du site "${editingSite.name}" (${editingSite.domain}) pour modification...`,
+            type: 'system',
+            timestamp: timeStr
+          },
+          {
+            id: 'log-init-edit-success',
+            text: `✅ Code source chargé (${htmlCode.split('\n').length} lignes). Saisissez vos consignes pour modifier le site en direct.`,
+            type: 'success',
+            timestamp: timeStr
+          }
+        ]);
+
+        // Prepopulate chat history with the current code so Gemini gets it in context
+        setMessages([
+          {
+            id: `msg-init-code-${editingSite.id}`,
+            role: 'assistant',
+            content: `Voici le code actuel du site :\n\`\`\`html\n${htmlCode}\n\`\`\``,
+            timestamp: new Date()
+          }
+        ]);
+      }
+    }
+  }, [editingSite]);
 
   const saveManualModification = async (htmlCode: string, changeDescription: string) => {
     if (!currentSiteId || !userProfile) return;
@@ -422,6 +472,17 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
     setTimeout(() => {
       handleGenerateSite(undefined, fullPromptText);
     }, 100);
+  };
+
+  const handleUseSuggestion = (fullPromptText: string) => {
+    setActiveLeftTab('chat');
+    setPrompt(fullPromptText);
+    setTimeout(() => {
+      const inputEl = document.getElementById('chat-prompt-input');
+      if (inputEl) {
+        inputEl.focus();
+      }
+    }, 150);
   };
 
   // Run the site generation
@@ -952,15 +1013,28 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
                           </p>
                         </div>
                         
-                        <button
-                          type="button"
-                          onClick={() => handleSuggestionClick(sug.title, sug.prompt)}
-                          disabled={isGenerating}
-                          className="w-full py-1.5 px-3 bg-[#2563EB]/10 hover:bg-[#2563EB] text-[#2563EB] hover:text-white disabled:opacity-50 text-[10px] font-bold rounded-lg transition-all duration-200 flex items-center justify-center gap-1 cursor-pointer"
-                        >
-                          <Sparkles className="w-3 h-3" />
-                          Générer ce site
-                        </button>
+                        <div className="flex gap-2 mt-auto pt-1">
+                          <button
+                            type="button"
+                            onClick={() => handleUseSuggestion(sug.prompt)}
+                            disabled={isGenerating}
+                            className="flex-1 py-1.5 px-2 bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-50 text-[10px] font-bold rounded-lg transition-all duration-200 flex items-center justify-center gap-1 cursor-pointer border border-slate-200"
+                            title="Modifier ce prompt avant de générer"
+                          >
+                            <Edit3 className="w-3 h-3" />
+                            Modifier
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSuggestionClick(sug.title, sug.prompt)}
+                            disabled={isGenerating}
+                            className="flex-1 py-1.5 px-2 bg-[#2563EB] hover:bg-blue-700 text-white disabled:opacity-50 text-[10px] font-bold rounded-lg transition-all duration-200 flex items-center justify-center gap-1 cursor-pointer shadow-xs"
+                            title="Lancer la génération immédiatement"
+                          >
+                            <Sparkles className="w-3 h-3" />
+                            Générer direct
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -994,25 +1068,32 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
                 ) : (
                   // Active Conversation Chat list
                   <div className="space-y-3 pb-2">
-                    {messages.map((msg) => (
-                      <div
-                        key={msg.id}
-                        className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                      >
-                        <div className={`max-w-[85%] rounded-xl px-2.5 py-1.5 text-xs ${
-                          msg.role === 'user'
-                            ? 'bg-[#2563EB] text-white shadow-sm shadow-blue-500/10'
-                            : 'bg-slate-100 text-[#0A0E1A] border border-slate-200/50'
-                        }`}>
-                          <p className="leading-relaxed whitespace-pre-wrap">{msg.content}</p>
-                          <span className={`text-[10px] block mt-1 text-right font-mono ${
-                            msg.role === 'user' ? 'text-blue-200' : 'text-slate-400'
-                          }`}>
-                            {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
+                    {messages
+                      .filter((msg) => !msg.id.startsWith('msg-init-code-'))
+                      .map((msg) => {
+                        const timeString = msg.timestamp instanceof Date 
+                          ? msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                          : new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                        return (
+                          <div
+                            key={msg.id}
+                            className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                          >
+                            <div className={`max-w-[85%] rounded-xl px-2.5 py-1.5 text-xs ${
+                              msg.role === 'user'
+                                ? 'bg-[#2563EB] text-white shadow-sm shadow-blue-500/10'
+                                : 'bg-slate-100 text-[#0A0E1A] border border-slate-200/50'
+                            }`}>
+                              <p className="leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                              <span className={`text-[10px] block mt-1 text-right font-mono ${
+                                msg.role === 'user' ? 'text-blue-200' : 'text-slate-400'
+                              }`}>
+                                {timeString}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
 
                     {/* Stateful Real-time Stepper inside Chat Loading Bubble */}
                     {isGenerating && (
@@ -1105,6 +1186,7 @@ export default function NewSiteView({ userProfile, onViewChange }: NewSiteViewPr
             <form onSubmit={handleGenerateSite} className="flex gap-1.5">
               <input
                 type="text"
+                id="chat-prompt-input"
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
                 placeholder={isGenerating ? "Génération en cours... Vous pouvez annuler si besoin" : "Ex: Ajoute un bouton d'achat ou change la couleur..."}

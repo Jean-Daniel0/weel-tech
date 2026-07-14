@@ -99,15 +99,36 @@ export default function App() {
     setLoading(false);
   };
 
+  const [editingSite, setEditingSite] = useState<any>(null);
+
   // Switch sub-panels
   const renderActiveView = () => {
     switch (currentView) {
       case 'dashboard':
         return <DashboardView userProfile={userProfile} onViewChange={(view) => setCurrentView(view)} />;
       case 'sites':
-        return <SitesView userProfile={userProfile} />;
+        return (
+          <SitesView 
+            userProfile={userProfile} 
+            onEditSite={(site) => {
+              setEditingSite(site);
+              setCurrentView('new-site');
+            }} 
+          />
+        );
       case 'new-site':
-        return <NewSiteView userProfile={userProfile} onViewChange={(view) => setCurrentView(view)} />;
+        return (
+          <NewSiteView 
+            userProfile={userProfile} 
+            onViewChange={(view) => {
+              if (view !== 'new-site') {
+                setEditingSite(null);
+              }
+              setCurrentView(view);
+            }} 
+            editingSite={editingSite}
+          />
+        );
       case 'pay':
         return <PayView userProfile={userProfile} />;
       case 'domains':

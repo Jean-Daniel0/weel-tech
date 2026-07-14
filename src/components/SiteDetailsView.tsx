@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Site } from '../types';
 import { 
   ArrowLeft, Globe, TrendingUp, Users, Eye, RefreshCw, 
-  ShieldCheck, BarChart3, HelpCircle, Copy, Check, Calendar, Clock, Lock
+  ShieldCheck, BarChart3, HelpCircle, Copy, Check, Calendar, Clock, Lock, Edit3
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { 
@@ -12,6 +12,7 @@ import {
 interface SiteDetailsViewProps {
   site: Site;
   onBack: () => void;
+  onEditSite?: (site: Site) => void;
 }
 
 interface AnalyticsItem {
@@ -20,7 +21,7 @@ interface AnalyticsItem {
   pageViews: number;
 }
 
-export default function SiteDetailsView({ site, onBack }: SiteDetailsViewProps) {
+export default function SiteDetailsView({ site, onBack, onEditSite }: SiteDetailsViewProps) {
   const [analytics, setAnalytics] = useState<AnalyticsItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -147,14 +148,26 @@ export default function SiteDetailsView({ site, onBack }: SiteDetailsViewProps) 
           </div>
         </div>
 
-        <button
-          onClick={handleRefresh}
-          disabled={loading || refreshing}
-          className="self-start inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 text-gray-600 rounded-xl hover:bg-gray-50 transition text-xs font-semibold cursor-pointer shadow-xs disabled:opacity-50"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
-          {refreshing ? 'Actualisation...' : 'Actualiser les stats'}
-        </button>
+        <div className="flex items-center gap-2 self-start">
+          {onEditSite && (
+            <button
+              onClick={() => onEditSite(site)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-[#2563EB] hover:bg-blue-700 text-white rounded-xl transition text-xs font-semibold cursor-pointer shadow-md shadow-blue-500/10"
+            >
+              <Edit3 className="w-3.5 h-3.5" />
+              Modifier / Éditer le site
+            </button>
+          )}
+
+          <button
+            onClick={handleRefresh}
+            disabled={loading || refreshing}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 text-gray-600 rounded-xl hover:bg-gray-50 transition text-xs font-semibold cursor-pointer shadow-xs disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+            {refreshing ? 'Actualisation...' : 'Actualiser les stats'}
+          </button>
+        </div>
       </div>
 
       {/* Cloudflare Indicator */}
